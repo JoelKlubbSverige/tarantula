@@ -111,6 +111,7 @@ export default function Home() {
   const audioContextRef = useRef<AudioContext | null>(null);
   const elapsedRef = useRef(0);
   const [processingError, setProcessingError] = useState<string | null>(null);
+  const [sysAudioMissing, setSysAudioMissing] = useState(false);
 
   function getSupportedMimeType() {
     const types = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"];
@@ -138,6 +139,12 @@ export default function Home() {
           audio: capture.audio,
         });
         streams.push(display);
+        // On macOS, screen/window share gives no audio tracks — only Chrome tab share does
+        if (capture.audio && display.getAudioTracks().length === 0) {
+          setSysAudioMissing(true);
+        } else {
+          setSysAudioMissing(false);
+        }
       }
 
       if (streams.length === 0) return;
@@ -271,7 +278,6 @@ export default function Home() {
         <div className="flex flex-1 flex-col min-w-0">
           {/* Top-bar */}
           <Topbar
-            status={status}
             capture={capture}
             onCapture={setCapture}
             onRecord={isRecording ? stopRecording : startRecording}
@@ -291,6 +297,7 @@ export default function Home() {
               onRecord={isRecording ? stopRecording : startRecording}
               onReset={() => setStatus("idle")}
               errorMessage={processingError}
+              sysAudioMissing={sysAudioMissing}
             />
 
             {/* Sessions */}
@@ -434,12 +441,10 @@ function Sidebar({
 /* ── Top-bar ────────────────────────────────────────────────── */
 
 function Topbar({
-  status,
   isRecording,
   isProcessing,
   onRecord,
 }: {
-  status: AppStatus;
   capture: CaptureSource;
   onCapture: (c: CaptureSource) => void;
   onRecord: () => void;
@@ -572,6 +577,7 @@ function HeroPanel({
   onRecord,
   onReset,
   errorMessage,
+  sysAudioMissing,
 }: {
   status: AppStatus;
   elapsed: number;
@@ -581,6 +587,7 @@ function HeroPanel({
   onRecord: () => void;
   onReset: () => void;
   errorMessage: string | null;
+  sysAudioMissing: boolean;
 }) {
   const isRecording = status === "recording";
   const isProcessing = status === "processing";
@@ -600,7 +607,7 @@ function HeroPanel({
       ) : isProcessing ? (
         <ProcessingStepper step={step} />
       ) : isRecording ? (
-        <RecordingState elapsed={elapsed} capture={capture} onStop={onRecord} />
+        <RecordingState elapsed={elapsed} capture={capture} onStop={onRecord} sysAudioMissing={sysAudioMissing} />
       ) : (
         <IdleState capture={capture} onCapture={onCapture} onRecord={onRecord} />
       )}
@@ -708,10 +715,12 @@ function RecordingState({
   elapsed,
   capture,
   onStop,
+  sysAudioMissing,
 }: {
   elapsed: number;
   capture: CaptureSource;
   onStop: () => void;
+  sysAudioMissing: boolean;
 }) {
   const nearLimit = elapsed > 1500;
 
@@ -764,8 +773,26 @@ function RecordingState({
       <div className="flex items-center gap-3 text-xs" style={{ color: "var(--color-text-tertiary)" }}>
         {capture.screen && <span>🖥 Skärm ●</span>}
         {capture.mic && <span>🎙 Mikrofon ●</span>}
-        {capture.audio && <span>🔊 Systemljud ●</span>}
+        {capture.audio && (
+          <span style={{ color: sysAudioMissing ? "var(--color-warning)" : undefined }}>
+            🔊 Systemljud {sysAudioMissing ? "⚠" : "●"}
+          </span>
+        )}
       </div>
+
+      {/* Systemljud-varning */}
+      {sysAudioMissing && (
+        <p
+          className="text-xs text-center px-3 py-2 rounded-input max-w-xs"
+          style={{
+            color: "var(--color-warning)",
+            background: "rgba(217,119,6,.08)",
+            border: "1px solid rgba(217,119,6,.2)",
+          }}
+        >
+          Inget systemljud fångades. Dela en <strong>Chrome-flik</strong> (inte hela skärmen) och bocka i &quot;Dela flikens ljud&quot;.
+        </p>
+      )}
 
       {/* Stopp-knapp */}
       <button
