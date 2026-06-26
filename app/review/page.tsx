@@ -130,11 +130,25 @@ function formatTimecode(sec: number) {
 /* ── Main page ──────────────────────────────────────────────── */
 export default function ReviewPage() {
   const router = useRouter();
+  const [session, setSession] = useState<Session>(MOCK_SESSION);
   const [issues, setIssues] = useState<LinearIssue[]>(MOCK_SESSION.issues);
   const [highlightedTime, setHighlightedTime] = useState<number | null>(null);
   const [meta, setMeta] = useState<LinearMeta | null>(null);
   const [metaError, setMetaError] = useState(false);
-  const session = MOCK_SESSION;
+
+  useEffect(() => {
+    const raw = sessionStorage.getItem("tarantula:session");
+    if (raw) {
+      try {
+        const s: Session = JSON.parse(raw);
+        setSession(s);
+        setIssues(s.issues);
+        sessionStorage.removeItem("tarantula:session");
+      } catch {
+        // fall through to mock data
+      }
+    }
+  }, []);
 
   useEffect(() => {
     fetch("/api/linear/meta")

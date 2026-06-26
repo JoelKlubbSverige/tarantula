@@ -17,9 +17,10 @@ import {
   ArrowUpRight,
   Check,
 } from "lucide-react";
+import Image from "next/image";
 import type { Session } from "@/lib/types";
 
-type AppStatus = "idle" | "recording" | "processing";
+type AppStatus = "idle" | "recording" | "processing" | "error";
 type ProcessingStep = 0 | 1 | 2;
 
 type CaptureSource = { screen: boolean; audio: boolean; mic: boolean };
@@ -40,12 +41,12 @@ const MOCK_SESSIONS: Session[] = [
     durationSec: 2520,
     transcript: [],
     issues: [
-      { id: "i1", title: "Fix login redirect", description: "", priority: 2, labels: [], teamId: "", status: "sent" },
-      { id: "i2", title: "Uppdatera onboarding-copy", description: "", priority: 3, labels: [], teamId: "", status: "draft" },
-      { id: "i3", title: "Cleanup auth middleware", description: "", priority: 4, labels: [], teamId: "", status: "draft" },
-      { id: "i4", title: "API rate limiting", description: "", priority: 1, labels: [], teamId: "", status: "draft" },
-      { id: "i5", title: "Dark mode toggle saknas", description: "", priority: 3, labels: [], teamId: "", status: "draft" },
-      { id: "i6", title: "Mobilanpassning dashboard", description: "", priority: 2, labels: [], teamId: "", status: "draft" },
+      { id: "i1", title: "Fix login redirect", description: "", priority: 2, labelIds: [], teamId: "", status: "sent" },
+      { id: "i2", title: "Uppdatera onboarding-copy", description: "", priority: 3, labelIds: [], teamId: "", status: "draft" },
+      { id: "i3", title: "Cleanup auth middleware", description: "", priority: 4, labelIds: [], teamId: "", status: "draft" },
+      { id: "i4", title: "API rate limiting", description: "", priority: 1, labelIds: [], teamId: "", status: "draft" },
+      { id: "i5", title: "Dark mode toggle saknas", description: "", priority: 3, labelIds: [], teamId: "", status: "draft" },
+      { id: "i6", title: "Mobilanpassning dashboard", description: "", priority: 2, labelIds: [], teamId: "", status: "draft" },
     ],
   },
   {
@@ -55,9 +56,9 @@ const MOCK_SESSIONS: Session[] = [
     durationSec: 1680,
     transcript: [],
     issues: [
-      { id: "i7", title: "Exportera CSV kraschar", description: "", priority: 1, labels: [], teamId: "", status: "sent" },
-      { id: "i8", title: "Notiser levereras fel", description: "", priority: 3, labels: [], teamId: "", status: "draft" },
-      { id: "i9", title: "Sökfilter sparas inte", description: "", priority: 3, labels: [], teamId: "", status: "sent" },
+      { id: "i7", title: "Exportera CSV kraschar", description: "", priority: 1, labelIds: [], teamId: "", status: "sent" },
+      { id: "i8", title: "Notiser levereras fel", description: "", priority: 3, labelIds: [], teamId: "", status: "draft" },
+      { id: "i9", title: "Sökfilter sparas inte", description: "", priority: 3, labelIds: [], teamId: "", status: "sent" },
     ],
   },
   {
@@ -67,8 +68,8 @@ const MOCK_SESSIONS: Session[] = [
     durationSec: 3728,
     transcript: [],
     issues: [
-      { id: "i10", title: "Refaktorera useAuth-hook", description: "", priority: 4, labels: [], teamId: "", status: "draft" },
-      { id: "i11", title: "E2E-tester för checkout", description: "", priority: 2, labels: [], teamId: "", status: "sent" },
+      { id: "i10", title: "Refaktorera useAuth-hook", description: "", priority: 4, labelIds: [], teamId: "", status: "draft" },
+      { id: "i11", title: "E2E-tester för checkout", description: "", priority: 2, labelIds: [], teamId: "", status: "sent" },
     ],
   },
 ];
@@ -104,33 +105,148 @@ export default function Home() {
   const [capture, setCapture] = useState<CaptureSource>({ screen: true, audio: false, mic: true });
   const [activeNav, setActiveNav] = useState<"record" | "history" | "settings">("record");
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const processingRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const streamsRef = useRef<MediaStream[]>([]);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const elapsedRef = useRef(0);
+  const [processingError, setProcessingError] = useState<string | null>(null);
 
-  const startRecording = useCallback(() => {
-    setStatus("recording");
-    setElapsed(0);
-    timerRef.current = setInterval(() => setElapsed((e) => e + 1), 1000);
-  }, []);
+  function getSupportedMimeType() {
+    const types = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"];
+    for (const t of types) {
+      if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(t)) return t;
+    }
+    return "";
+  }
+
+  const startRecording = useCallback(async () => {
+    chunksRef.current = [];
+    const streams: MediaStream[] = [];
+
+    try {
+      if (capture.mic) {
+        const mic = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true },
+        });
+        streams.push(mic);
+      }
+
+      if (capture.screen || capture.audio) {
+        const display = await navigator.mediaDevices.getDisplayMedia({
+          video: capture.screen,
+          audio: capture.audio,
+        });
+        streams.push(display);
+      }
+
+      if (streams.length === 0) return;
+
+      // Combine all audio tracks
+      const audioTracks = streams.flatMap((s) => s.getAudioTracks());
+      let recordStream: MediaStream;
+
+      if (audioTracks.length === 1) {
+        recordStream = new MediaStream(audioTracks);
+      } else {
+        const ctx = new AudioContext();
+        const dest = ctx.createMediaStreamDestination();
+        for (const track of audioTracks) {
+          ctx.createMediaStreamSource(new MediaStream([track])).connect(dest);
+        }
+        audioContextRef.current = ctx;
+        recordStream = dest.stream;
+      }
+
+      streamsRef.current = streams;
+      const mimeType = getSupportedMimeType();
+      const recorder = new MediaRecorder(recordStream, mimeType ? { mimeType } : {});
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
+      mediaRecorderRef.current = recorder;
+      recorder.start(1000);
+
+      setStatus("recording");
+      setElapsed(0);
+      elapsedRef.current = 0;
+      timerRef.current = setInterval(() => {
+        setElapsed((e) => { elapsedRef.current = e + 1; return e + 1; });
+      }, 1000);
+    } catch (err) {
+      streams.forEach((s) => s.getTracks().forEach((t) => t.stop()));
+      console.error("Failed to start recording:", err);
+    }
+  }, [capture]);
 
   const stopRecording = useCallback(() => {
     if (timerRef.current) clearInterval(timerRef.current);
-    setStatus("processing");
-    setStep(0);
-    processingRef.current = setTimeout(() => {
-      setStep(1);
-      processingRef.current = setTimeout(() => {
+    const recorder = mediaRecorderRef.current;
+    if (!recorder) return;
+
+    const durationSec = elapsedRef.current;
+
+    recorder.onstop = async () => {
+      streamsRef.current.forEach((s) => s.getTracks().forEach((t) => t.stop()));
+      audioContextRef.current?.close();
+
+      setStatus("processing");
+      setStep(0);
+      setProcessingError(null);
+
+      const mimeType = chunksRef.current[0]?.type || "audio/webm";
+      const ext = mimeType.includes("mp4") ? "mp4" : mimeType.includes("ogg") ? "ogg" : "webm";
+      const blob = new Blob(chunksRef.current, { type: mimeType });
+
+      try {
+        // Step 1 – Whisper
+        const fd = new FormData();
+        fd.append("audio", blob, `recording.${ext}`);
+        const transcribeRes = await fetch("/api/transcribe", { method: "POST", body: fd });
+        if (!transcribeRes.ok) {
+          const e = await transcribeRes.json().catch(() => ({}));
+          throw new Error(e.error ?? "Transkribering misslyckades");
+        }
+        const { text, segments } = await transcribeRes.json();
+        setStep(1);
+
+        // Step 2 – GPT-4o
+        const issuesRes = await fetch("/api/generate-issues", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ transcript: text }),
+        });
+        if (!issuesRes.ok) {
+          const e = await issuesRes.json().catch(() => ({}));
+          throw new Error(e.error ?? "Issue-generering misslyckades");
+        }
+        const { title, issues } = await issuesRes.json();
         setStep(2);
-        processingRef.current = setTimeout(() => {
-          router.push("/review");
-        }, 800);
-      }, 2000);
-    }, 2500);
+
+        const session = {
+          id: String(Date.now()),
+          title,
+          date: new Date().toISOString(),
+          durationSec,
+          transcript: segments,
+          issues,
+        };
+        sessionStorage.setItem("tarantula:session", JSON.stringify(session));
+
+        setTimeout(() => router.push("/review"), 600);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Okänt fel";
+        setProcessingError(msg);
+        setStatus("error");
+      }
+    };
+
+    recorder.stop();
   }, [router]);
 
   useEffect(() => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
-      if (processingRef.current) clearTimeout(processingRef.current);
+      streamsRef.current.forEach((s) => s.getTracks().forEach((t) => t.stop()));
+      audioContextRef.current?.close();
     };
   }, []);
 
@@ -173,6 +289,8 @@ export default function Home() {
               capture={capture}
               onCapture={setCapture}
               onRecord={isRecording ? stopRecording : startRecording}
+              onReset={() => setStatus("idle")}
+              errorMessage={processingError}
             />
 
             {/* Sessions */}
@@ -232,12 +350,7 @@ function Sidebar({
     >
       {/* Logo */}
       <div className="flex items-center gap-2 mb-8">
-        <div
-          className="flex items-center justify-center w-8 h-8 rounded-full text-white font-bold text-sm shrink-0"
-          style={{ background: "var(--color-primary)" }}
-        >
-          T
-        </div>
+        <Image src="/Tarantula.png" alt="Tarantula" width={32} height={32} className="shrink-0" />
         <span
           className="font-bold text-base"
           style={{ color: "var(--color-primary)", letterSpacing: "-0.01em" }}
@@ -457,6 +570,8 @@ function HeroPanel({
   capture,
   onCapture,
   onRecord,
+  onReset,
+  errorMessage,
 }: {
   status: AppStatus;
   elapsed: number;
@@ -464,9 +579,12 @@ function HeroPanel({
   capture: CaptureSource;
   onCapture: (c: CaptureSource) => void;
   onRecord: () => void;
+  onReset: () => void;
+  errorMessage: string | null;
 }) {
   const isRecording = status === "recording";
   const isProcessing = status === "processing";
+  const isError = status === "error";
 
   return (
     <div
@@ -477,13 +595,47 @@ function HeroPanel({
         minHeight: 280,
       }}
     >
-      {isProcessing ? (
+      {isError ? (
+        <ErrorState message={errorMessage} onReset={onReset} />
+      ) : isProcessing ? (
         <ProcessingStepper step={step} />
       ) : isRecording ? (
         <RecordingState elapsed={elapsed} capture={capture} onStop={onRecord} />
       ) : (
         <IdleState capture={capture} onCapture={onCapture} onRecord={onRecord} />
       )}
+    </div>
+  );
+}
+
+function ErrorState({ message, onReset }: { message: string | null; onReset: () => void }) {
+  return (
+    <div className="flex flex-col items-center gap-4 py-4">
+      <div
+        className="w-12 h-12 rounded-full flex items-center justify-center"
+        style={{ background: "#FEE2E2" }}
+      >
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <path d="M10 6v4m0 4h.01M18 10a8 8 0 11-16 0 8 8 0 0116 0z" stroke="#DC2626" strokeWidth="1.75" strokeLinecap="round"/>
+        </svg>
+      </div>
+      <div className="text-center">
+        <p className="font-semibold text-sm" style={{ color: "var(--color-text)" }}>
+          Något gick fel
+        </p>
+        {message && (
+          <p className="text-xs mt-1 max-w-xs" style={{ color: "var(--color-text-secondary)" }}>
+            {message}
+          </p>
+        )}
+      </div>
+      <button
+        onClick={onReset}
+        className="px-4 py-2 rounded-xl text-sm font-medium"
+        style={{ background: "var(--color-primary)", color: "#fff" }}
+      >
+        Försök igen
+      </button>
     </div>
   );
 }
