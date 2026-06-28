@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import Image from "next/image";
 import {
   ArrowLeft,
   Trash2,
@@ -18,100 +19,45 @@ import {
   Layers,
   RefreshCw,
   Hash,
+  Send,
+  X,
+  Loader2,
 } from "lucide-react";
 import type { LinearIssue, Priority, Session, LinearMeta } from "@/lib/types";
 import { PRIORITY_LABELS, PRIORITY_COLORS, PRIORITY_BG, ESTIMATES } from "@/lib/types";
 
-/* ── Linear logo mark ─────────────────────────────────────── */
-function LinearMark({ size = 14 }: { size?: number }) {
+function LinearLogo({ size = 18 }: { size?: number }) {
+  return <Image src="/linearlogo.png" alt="Linear" width={size} height={size} style={{ objectFit: "contain", filter: "brightness(0) invert(1)" }} />;
+}
+
+function MarkdownText({ text }: { text: string }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 20 20" fill="none">
-      <defs>
-        <clipPath id="lm">
-          <circle cx="10" cy="10" r="10" />
-        </clipPath>
-      </defs>
-      <circle cx="10" cy="10" r="10" fill="currentColor" />
-      <g clipPath="url(#lm)">
-        <line x1="-1" y1="12.5" x2="12.5" y2="-1" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
-        <line x1="3" y1="16.5" x2="16.5" y2="3" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
-        <line x1="7" y1="21" x2="21" y2="7" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
-      </g>
-    </svg>
+    <span>
+      {text.split("\n").map((line, i, allLines) => {
+        const isBullet = /^[-•]\s/.test(line);
+        const content = isBullet ? line.replace(/^[-•]\s/, "") : line;
+
+        const renderInline = (str: string) => {
+          const parts = str.split(/(\*\*[^*]+\*\*|\*[^*]+\*)/g);
+          return parts.map((p, j) => {
+            if (p.startsWith("**") && p.endsWith("**")) return <strong key={j}>{p.slice(2, -2)}</strong>;
+            if (p.startsWith("*") && p.endsWith("*")) return <em key={j}>{p.slice(1, -1)}</em>;
+            return <span key={j}>{p}</span>;
+          });
+        };
+
+        return (
+          <span key={i} style={{ display: isBullet ? "flex" : "inline", alignItems: "baseline", gap: 4 }}>
+            {isBullet && <span style={{ flexShrink: 0, marginTop: 2 }}>•</span>}
+            <span>{renderInline(content)}</span>
+            {i < allLines.length - 1 && <br />}
+          </span>
+        );
+      })}
+    </span>
   );
 }
 
-/* ── Mock data ──────────────────────────────────────────────── */
-const MOCK_TRANSCRIPT = [
-  { start: 0, text: "Vi börjar med att gå igenom roadmapen för Q3." },
-  { start: 95, text: "Det finns en bugg i onboarding-steget — steg 3 visas inte rätt på mobil." },
-  { start: 182, text: "Vi behöver uppdatera copy:n, texten är fortfarande från beta." },
-  { start: 222, text: "Auth middleware är legacy och bör städas upp innan nästa release." },
-  { start: 315, text: "API rate limiting är en blocker för enterprise-kunder, vi måste prioritera det." },
-  { start: 401, text: "Dark mode-togglens saknas på dashboarden, kom med i förra veckan." },
-  { start: 488, text: "Mobilanpassningen av dashboarden är halvfärdig, Joel tar det den här veckan." },
-  { start: 542, text: "Vi avslutar med att planera in en tech-debt-sprint nästa period." },
-];
-
-const MOCK_SESSION: Session = {
-  id: "1",
-  title: "App-sync · produkt & design",
-  date: "2026-06-25T09:00:00",
-  durationSec: 2520,
-  transcript: MOCK_TRANSCRIPT,
-  issues: [
-    {
-      id: "i1",
-      title: "Fix login redirect after session expires",
-      description: "Användare hamnar på en tom sida när sessionen går ut. Bör redirecta till /login med en tillbaka-parameter.",
-      priority: 2,
-      labelIds: [],
-      teamId: "",
-      status: "draft",
-      sourceTimecode: "00:00:00",
-    },
-    {
-      id: "i2",
-      title: "Uppdatera onboarding-copy i steg 3",
-      description: "Texten är fortfarande från beta-perioden och stämmer inte med nuvarande flöde.",
-      priority: 3,
-      labelIds: [],
-      teamId: "",
-      status: "draft",
-      sourceTimecode: "00:01:35",
-    },
-    {
-      id: "i3",
-      title: "Cleanup legacy auth middleware",
-      description: "Gamla middleware skapar risk inför nästa release. Bör refaktoreras eller tas bort.",
-      priority: 4,
-      labelIds: [],
-      teamId: "",
-      status: "draft",
-      sourceTimecode: "00:03:42",
-    },
-    {
-      id: "i4",
-      title: "API rate limiting för enterprise",
-      description: "Saknar rate limiting vilket blockerar enterprise-onboarding.",
-      priority: 1,
-      labelIds: [],
-      teamId: "",
-      status: "draft",
-      sourceTimecode: "00:05:15",
-    },
-    {
-      id: "i5",
-      title: "Mobilanpassning av dashboard",
-      description: "Dashboard är inte mobilanpassad. Joel tar det under v26.",
-      priority: 2,
-      labelIds: [],
-      teamId: "",
-      status: "draft",
-      sourceTimecode: "00:08:08",
-    },
-  ],
-};
 
 function formatDuration(sec: number) {
   const h = Math.floor(sec / 3600);
@@ -120,6 +66,8 @@ function formatDuration(sec: number) {
   return `${m} min`;
 }
 
+const NOW_MS = Date.now();
+
 function formatTimecode(sec: number) {
   const h = Math.floor(sec / 3600).toString().padStart(2, "0");
   const m = Math.floor((sec % 3600) / 60).toString().padStart(2, "0");
@@ -127,28 +75,59 @@ function formatTimecode(sec: number) {
   return `${h}:${m}:${s}`;
 }
 
+function sessionDisplayId(id: string) {
+  return "#" + ((parseInt(id.replace(/-/g, "").slice(-8), 16) % 9000) + 1000);
+}
+
 /* ── Main page ──────────────────────────────────────────────── */
+const EMPTY_SESSION: Session = { id: "", title: "", date: new Date().toISOString(), durationSec: 0, transcript: [], issues: [] };
+
 export default function ReviewPage() {
   const router = useRouter();
-  const [session, setSession] = useState<Session>(MOCK_SESSION);
-  const [issues, setIssues] = useState<LinearIssue[]>(MOCK_SESSION.issues);
+  const searchParams = useSearchParams();
+  const [session, setSession] = useState<Session>(EMPTY_SESSION);
+  const [issues, setIssues] = useState<LinearIssue[]>([]);
+  const [loading, setLoading] = useState(true);
   const [highlightedTime, setHighlightedTime] = useState<number | null>(null);
   const [meta, setMeta] = useState<LinearMeta | null>(null);
   const [metaError, setMetaError] = useState(false);
 
   useEffect(() => {
-    const raw = sessionStorage.getItem("tarantula:session");
-    if (raw) {
-      try {
-        const s: Session = JSON.parse(raw);
-        setSession(s);
-        setIssues(s.issues);
-        sessionStorage.removeItem("tarantula:session");
-      } catch {
-        // fall through to mock data
+    async function load() {
+      // 1. Fresh recording — sessionStorage has the data
+      const raw = sessionStorage.getItem("tarantula:session");
+      if (raw) {
+        try {
+          const s: Session = JSON.parse(raw);
+          sessionStorage.removeItem("tarantula:session");
+          setSession(s);
+          setIssues(s.issues);
+          setLoading(false);
+          return;
+        } catch { /* fall through */ }
       }
+
+      // 2. Navigating from session card — load from DB via URL param
+      const sessionId = searchParams.get("session");
+      if (sessionId) {
+        try {
+          const res = await fetch(`/api/sessions/${sessionId}`);
+          const s = await res.json();
+          if (s.error) { router.push("/"); return; }
+          setSession(s);
+          setIssues(s.issues);
+          setLoading(false);
+        } catch {
+          router.push("/");
+        }
+        return;
+      }
+
+      // 3. No data — go home
+      router.push("/");
     }
-  }, []);
+    load();
+  }, [router, searchParams]);
 
   useEffect(() => {
     fetch("/api/linear/meta")
@@ -207,6 +186,14 @@ export default function ReviewPage() {
 
   const pendingCount = issues.filter((i) => i.status === "draft" || i.status === "error").length;
 
+  if (loading) {
+    return (
+      <div className="flex h-full items-center justify-center" style={{ background: "var(--color-app-bg)" }}>
+        <Loader2 size={28} className="animate-spin" style={{ color: "var(--color-text-tertiary)" }} />
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-full p-4" style={{ background: "var(--color-app-bg)" }}>
       <div
@@ -239,11 +226,21 @@ export default function ReviewPage() {
             <div className="w-px h-4 shrink-0" style={{ background: "var(--color-border)" }} />
 
             <div className="flex-1 min-w-0">
-              <h1 className="text-lg font-bold truncate" style={{ color: "var(--color-text)", letterSpacing: "-0.02em" }}>
-                {session.title}
-              </h1>
+              <div className="flex items-baseline gap-2 min-w-0">
+                {session.id && (
+                  <span
+                    className="text-sm font-mono font-semibold shrink-0"
+                    style={{ color: "var(--color-text-tertiary)" }}
+                  >
+                    {sessionDisplayId(session.id)}
+                  </span>
+                )}
+                <h1 className="text-lg font-bold truncate" style={{ color: "var(--color-text)", letterSpacing: "-0.02em" }}>
+                  {session.title}
+                </h1>
+              </div>
               <p className="text-xs" style={{ color: "var(--color-text-tertiary)" }}>
-                25 jun 2026 · {formatDuration(session.durationSec)}
+                {formatDuration(session.durationSec)}
               </p>
             </div>
 
@@ -254,9 +251,10 @@ export default function ReviewPage() {
                 style={{ background: "var(--gradient-record)", border: "none", cursor: "pointer", boxShadow: "var(--shadow-record)" }}
                 onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.transform = "translateY(-1px)")}
                 onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.transform = "translateY(0)")}
-              >
-                <LinearMark size={14} />
-                Skicka alla ({pendingCount})
+                >
+                  ({pendingCount})
+                Skicka till 
+                <LinearLogo size={55} />
               </button>
             )}
           </div>
@@ -316,7 +314,357 @@ export default function ReviewPage() {
           </div>
         </div>
       </div>
+
+      <ChatWidget
+        transcript={session.transcript.map((s) => `[${formatTimecode(s.start)}] ${s.text}`).join("\n")}
+        currentIssues={issues.map((i) => i.title)}
+        onAddIssues={(newIssues) => {
+          const mapped: LinearIssue[] = newIssues.map((iss, idx) => ({
+            id: `chat-${Date.now()}-${idx}`,
+            title: iss.title,
+            description: iss.description ?? "",
+            priority: (iss.priority ?? 3) as Priority,
+            labelIds: [],
+            teamId: "",
+            status: "draft",
+          }));
+          setIssues((prev) => [...prev, ...mapped]);
+        }}
+      />
     </div>
+  );
+}
+
+/* ── Chat widget ────────────────────────────────────────────── */
+
+interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+  linearIssues?: { title: string; description: string; priority: number }[];
+}
+
+interface ChatIssue { title: string; description: string; priority: number }
+
+function ChatWidget({
+  transcript,
+  currentIssues,
+  onAddIssues,
+}: {
+  transcript: string;
+  currentIssues: string[];
+  onAddIssues: (issues: ChatIssue[]) => void;
+}) {
+  const INITIAL_MESSAGES: ChatMessage[] = [
+    { role: "assistant", content: "Hej! Jag kan hjälpa dig analysera mötestranskriptet och strukturera issues. Vad vill du ha hjälp med?" },
+  ];
+  const [open, setOpen] = useState(false);
+  const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_MESSAGES);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [sendingLinear, setSendingLinear] = useState<number | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+    if (menuOpen) document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [menuOpen]);
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages, open]);
+
+  async function send() {
+    const text = input.trim();
+    if (!text || loading) return;
+    setInput("");
+    const next: ChatMessage = { role: "user", content: text };
+    setMessages((prev) => [...prev, next]);
+    setLoading(true);
+
+    try {
+      const history = [...messages, next].map(({ role, content }) => ({ role, content }));
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: history, transcript, currentIssues }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: data.message, linearIssues: data.linearIssues ?? undefined },
+      ]);
+    } catch (err) {
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: "Något gick fel. Försök igen." },
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleSendToLinear(issues: ChatIssue[], msgIdx: number) {
+    setSendingLinear(msgIdx);
+    onAddIssues(issues);
+    setMessages((prev) =>
+      prev.map((m, i) =>
+        i === msgIdx
+          ? { ...m, linearIssues: undefined, content: m.content + "\n\n✓ Issues tillagda i listan — skicka dem härifrån." }
+          : m
+      )
+    );
+    setSendingLinear(null);
+  }
+
+  return (
+    <>
+      {/* FAB */}
+      <button
+        onClick={() => setOpen((o) => !o)}
+        aria-label="Öppna assistent"
+        style={{
+          position: "fixed",
+          bottom: 24,
+          right: 24,
+          width: 52,
+          height: 52,
+          borderRadius: "50%",
+          background: "#18181B",
+          border: "none",
+          cursor: "pointer",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          boxShadow: "0 4px 20px rgba(0,0,0,0.25)",
+          zIndex: 50,
+          transition: "transform 0.15s",
+        }}
+        onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.transform = "scale(1.07)")}
+        onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.transform = "scale(1)")}
+      >
+        <Image src="/Tarantula.png" alt="Tarantula" width={28} height={28} style={{ filter: "invert(1)" }} />
+      </button>
+
+      {/* Chat widget */}
+      {open && (
+        <div
+          style={{
+            position: "fixed",
+            bottom: 88,
+            right: 24,
+            width: 360,
+            height: 500,
+            background: "var(--color-surface)",
+            borderRadius: 20,
+            boxShadow: "var(--shadow-popover)",
+            border: "1px solid var(--color-border)",
+            display: "flex",
+            flexDirection: "column",
+            zIndex: 50,
+            overflow: "hidden",
+          }}
+        >
+          {/* Header */}
+          <div
+            className="flex items-center gap-2.5 px-4 py-3 shrink-0"
+            style={{ borderBottom: "1px solid var(--color-border)" }}
+          >
+            <div
+              className="flex items-center justify-center w-7 h-7 rounded-full shrink-0"
+              style={{ background: "#18181B" }}
+            >
+              <Image src="/Tarantula.png" alt="" width={16} height={16} style={{ filter: "invert(1)" }} />
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>Tarantula Assistent</p>
+              <p className="text-xs" style={{ color: "var(--color-text-tertiary)" }}>GPT-4o mini</p>
+            </div>
+            {/* Menu */}
+            <div ref={menuRef} style={{ position: "relative" }}>
+              <button
+                onClick={() => setMenuOpen((v) => !v)}
+                style={{ background: "none", border: "none", cursor: "pointer", color: "var(--color-text-tertiary)", padding: 4, lineHeight: 1 }}
+                aria-label="Meny"
+              >
+                <span style={{ fontSize: 18, letterSpacing: 1 }}>···</span>
+              </button>
+              {menuOpen && (
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "calc(100% + 4px)",
+                    right: 0,
+                    background: "var(--color-surface)",
+                    border: "1px solid var(--color-border)",
+                    borderRadius: 10,
+                    boxShadow: "var(--shadow-popover)",
+                    minWidth: 140,
+                    zIndex: 60,
+                    overflow: "hidden",
+                  }}
+                >
+                  <button
+                    onClick={() => {
+                      setMessages(INITIAL_MESSAGES);
+                      setMenuOpen(false);
+                    }}
+                    className="flex items-center gap-2 w-full px-3 py-2 text-sm text-left"
+                    style={{
+                      background: "none",
+                      border: "none",
+                      cursor: "pointer",
+                      color: "var(--color-danger, #dc2626)",
+                    }}
+                    onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = "rgba(220,38,38,.07)")}
+                    onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = "none")}
+                  >
+                    <Trash2 size={13} />
+                    Rensa chatt
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <button
+              onClick={() => setOpen(false)}
+              style={{ background: "none", border: "none", cursor: "pointer", color: "var(--color-text-tertiary)", padding: 4 }}
+            >
+              <X size={16} strokeWidth={2} />
+            </button>
+          </div>
+
+          {/* Messages */}
+          <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
+            {messages.map((msg, i) => (
+              <div key={i} className={`flex flex-col gap-2 ${msg.role === "user" ? "items-end" : "items-start"}`}>
+                <div
+                  className="text-sm leading-relaxed px-3.5 py-2.5 rounded-2xl max-w-[85%]"
+                  style={
+                    msg.role === "user"
+                      ? { background: "var(--color-primary)", color: "#fff", borderBottomRightRadius: 6 }
+                      : { background: "var(--color-surface-inset)", color: "var(--color-text)", border: "1px solid var(--color-border)", borderBottomLeftRadius: 6 }
+                  }
+                >
+                  <MarkdownText text={msg.content} />
+                </div>
+
+                {/* Linear action card */}
+                {msg.role === "assistant" && msg.linearIssues && msg.linearIssues.length > 0 && (
+                  <div
+                    className="w-full rounded-xl p-3 flex flex-col gap-2"
+                    style={{ background: "var(--color-surface-inset)", border: "1px solid var(--color-border)" }}
+                  >
+                    <p className="text-xs font-semibold" style={{ color: "var(--color-text-secondary)" }}>
+                      {msg.linearIssues.length} issue{msg.linearIssues.length > 1 ? "s" : ""} identifierade
+                    </p>
+                    <div className="flex flex-col gap-1">
+                      {msg.linearIssues.map((iss, j) => (
+                        <div key={j} className="flex items-start gap-2">
+                          <div
+                            className="w-1.5 h-1.5 rounded-full shrink-0 mt-1.5"
+                            style={{
+                              background: iss.priority === 1 ? "var(--color-prio-urgent)" : iss.priority === 2 ? "var(--color-prio-high)" : "var(--color-prio-medium)",
+                            }}
+                          />
+                          <span className="text-xs leading-snug" style={{ color: "var(--color-text)" }}>{iss.title}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <button
+                      onClick={() => handleSendToLinear(msg.linearIssues!, i)}
+                      disabled={sendingLinear === i}
+                      className="flex items-center justify-center gap-2 w-full py-2 rounded-xl text-sm font-semibold text-white mt-1"
+                      style={{
+                        background: sendingLinear === i ? "var(--color-text-tertiary)" : "var(--gradient-record)",
+                        border: "none",
+                        cursor: sendingLinear === i ? "default" : "pointer",
+                      }}
+                    >
+                      {sendingLinear === i && <Loader2 size={14} className="animate-spin" />}
+                      Lägg till i granskning
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+
+            {loading && (
+              <div className="flex items-start">
+                <div
+                  className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-2xl text-sm"
+                  style={{ background: "var(--color-surface-inset)", border: "1px solid var(--color-border)", borderBottomLeftRadius: 6 }}
+                >
+                  {[0, 1, 2].map((d) => (
+                    <div
+                      key={d}
+                      className="w-1.5 h-1.5 rounded-full"
+                      style={{
+                        background: "var(--color-text-tertiary)",
+                        animation: `bar-wave 0.8s ease-in-out infinite ${d * 0.15}s`,
+                      }}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Input */}
+          <div
+            className="flex items-end gap-2 px-3 py-3 shrink-0"
+            style={{ borderTop: "1px solid var(--color-border)" }}
+          >
+            <textarea
+              ref={textareaRef}
+              value={input}
+              onChange={(e) => {
+                setInput(e.target.value);
+                e.target.style.height = "auto";
+                e.target.style.height = `${Math.min(e.target.scrollHeight, 100)}px`;
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+              }}
+              placeholder="Skriv ett meddelande…"
+              rows={1}
+              className="flex-1 resize-none text-sm rounded-input px-3 py-2 outline-none"
+              style={{
+                background: "var(--color-surface-inset)",
+                border: "1px solid var(--color-border)",
+                color: "var(--color-text)",
+                fontFamily: "inherit",
+                lineHeight: 1.5,
+                maxHeight: 100,
+              }}
+            />
+            <button
+              onClick={send}
+              disabled={!input.trim() || loading}
+              className="flex items-center justify-center w-9 h-9 rounded-input shrink-0"
+              style={{
+                background: input.trim() && !loading ? "var(--color-primary)" : "var(--color-border)",
+                border: "none",
+                cursor: input.trim() && !loading ? "pointer" : "default",
+                transition: "background 0.1s",
+              }}
+            >
+              <Send size={15} color="white" strokeWidth={2} />
+            </button>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -328,12 +676,7 @@ function ReviewSidebar() {
       style={{ borderRight: "1px solid var(--color-border)" }}
     >
       <div className="flex items-center gap-2 mb-8">
-        <div
-          className="flex items-center justify-center w-8 h-8 rounded-full text-white font-bold text-sm shrink-0"
-          style={{ background: "var(--color-primary)" }}
-        >
-          T
-        </div>
+        <Image src="/Tarantula.png" alt="Tarantula" width={32} height={32} style={{ borderRadius: "50%" }} />
         <span className="font-bold text-base" style={{ color: "var(--color-primary)" }}>
           Tarantula
         </span>
@@ -555,8 +898,7 @@ function IssueCard({
             placeholder="Cycle"
             value={issue.cycleId}
             options={meta?.cycles.map((c) => {
-                const now = Date.now();
-                const active = new Date(c.startsAt).getTime() <= now && new Date(c.endsAt).getTime() >= now;
+                const active = new Date(c.startsAt).getTime() <= NOW_MS && new Date(c.endsAt).getTime() >= NOW_MS;
                 return { id: c.id, label: `#${c.number} ${c.name}${active ? " ●" : ""}` };
               }) ?? []}
             onChange={(v) => onUpdate({ cycleId: v })}
@@ -622,8 +964,8 @@ function IssueCard({
               onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.transform = "translateY(-1px)")}
               onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.transform = "translateY(0)")}
             >
-              <LinearMark size={13} />
-              {issue.status === "error" ? "Försök igen" : "Skicka till Linear"}
+              {issue.status === "error" ? "Försök igen" : "Skicka till"}
+              <LinearLogo size={55} />
             </button>
           )}
 

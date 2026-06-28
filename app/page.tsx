@@ -12,10 +12,10 @@ import {
   Search,
   Bell,
   ChevronDown,
-  MonitorUp,
   Volume2,
   ArrowUpRight,
   Check,
+  Trash2,
 } from "lucide-react";
 import Image from "next/image";
 import type { Session } from "@/lib/types";
@@ -23,7 +23,7 @@ import type { Session } from "@/lib/types";
 type AppStatus = "idle" | "recording" | "processing" | "error";
 type ProcessingStep = 0 | 1 | 2;
 
-type CaptureSource = { screen: boolean; audio: boolean; mic: boolean };
+type CaptureSource = { audio: boolean; mic: boolean };
 
 const WAVEFORM_COUNT = 32;
 const WAVEFORM_DELAYS = Array.from({ length: WAVEFORM_COUNT }, (_, i) =>
@@ -33,46 +33,6 @@ const WAVEFORM_DURATIONS = Array.from({ length: WAVEFORM_COUNT }, (_, i) =>
   (0.45 + ((i * 0.13) % 0.5)).toFixed(2)
 );
 
-const MOCK_SESSIONS: Session[] = [
-  {
-    id: "1",
-    title: "App-sync · produkt & design",
-    date: "2026-06-25T09:00:00",
-    durationSec: 2520,
-    transcript: [],
-    issues: [
-      { id: "i1", title: "Fix login redirect", description: "", priority: 2, labelIds: [], teamId: "", status: "sent" },
-      { id: "i2", title: "Uppdatera onboarding-copy", description: "", priority: 3, labelIds: [], teamId: "", status: "draft" },
-      { id: "i3", title: "Cleanup auth middleware", description: "", priority: 4, labelIds: [], teamId: "", status: "draft" },
-      { id: "i4", title: "API rate limiting", description: "", priority: 1, labelIds: [], teamId: "", status: "draft" },
-      { id: "i5", title: "Dark mode toggle saknas", description: "", priority: 3, labelIds: [], teamId: "", status: "draft" },
-      { id: "i6", title: "Mobilanpassning dashboard", description: "", priority: 2, labelIds: [], teamId: "", status: "draft" },
-    ],
-  },
-  {
-    id: "2",
-    title: "Support-genomgång",
-    date: "2026-06-24T14:30:00",
-    durationSec: 1680,
-    transcript: [],
-    issues: [
-      { id: "i7", title: "Exportera CSV kraschar", description: "", priority: 1, labelIds: [], teamId: "", status: "sent" },
-      { id: "i8", title: "Notiser levereras fel", description: "", priority: 3, labelIds: [], teamId: "", status: "draft" },
-      { id: "i9", title: "Sökfilter sparas inte", description: "", priority: 3, labelIds: [], teamId: "", status: "sent" },
-    ],
-  },
-  {
-    id: "3",
-    title: "Sprint-planering v26",
-    date: "2026-06-23T10:00:00",
-    durationSec: 3728,
-    transcript: [],
-    issues: [
-      { id: "i10", title: "Refaktorera useAuth-hook", description: "", priority: 4, labelIds: [], teamId: "", status: "draft" },
-      { id: "i11", title: "E2E-tester för checkout", description: "", priority: 2, labelIds: [], teamId: "", status: "sent" },
-    ],
-  },
-];
 
 function formatDuration(sec: number) {
   const h = Math.floor(sec / 3600);
@@ -83,11 +43,16 @@ function formatDuration(sec: number) {
 
 function formatDate(iso: string) {
   const d = new Date(iso);
-  const now = new Date("2026-06-26");
+  const now = new Date();
   const diff = Math.floor((now.getTime() - d.getTime()) / 86400000);
   if (diff === 0) return "Idag";
   if (diff === 1) return "Igår";
   return d.toLocaleDateString("sv-SE", { day: "numeric", month: "short" });
+}
+
+function sessionDisplayId(id: string): string {
+  const num = parseInt(id.replace(/-/g, "").slice(-8), 16) % 9000 + 1000;
+  return `#${num}`;
 }
 
 function formatTimer(sec: number) {
@@ -102,8 +67,16 @@ export default function Home() {
   const [status, setStatus] = useState<AppStatus>("idle");
   const [elapsed, setElapsed] = useState(0);
   const [step, setStep] = useState<ProcessingStep>(0);
-  const [capture, setCapture] = useState<CaptureSource>({ screen: true, audio: false, mic: true });
+  const [capture, setCapture] = useState<CaptureSource>({ audio: false, mic: true });
   const [activeNav, setActiveNav] = useState<"record" | "history" | "settings">("record");
+  const [sessions, setSessions] = useState<Session[]>([]);
+
+  useEffect(() => {
+    fetch("/api/sessions")
+      .then((r) => r.json())
+      .then((data) => { if (Array.isArray(data)) setSessions(data); })
+      .catch(() => {});
+  }, []);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -133,13 +106,13 @@ export default function Home() {
         streams.push(mic);
       }
 
-      if (capture.screen || capture.audio) {
+      if (capture.audio) {
+        // video: true is required by Chrome — video: false throws NotSupportedError
         const display = await navigator.mediaDevices.getDisplayMedia({
-          video: capture.screen,
+          video: true,
           audio: capture.audio,
         });
         streams.push(display);
-        // On macOS, screen/window share gives no audio tracks — only Chrome tab share does
         if (capture.audio && display.getAudioTracks().length === 0) {
           setSysAudioMissing(true);
         } else {
@@ -149,10 +122,15 @@ export default function Home() {
 
       if (streams.length === 0) return;
 
-      // Combine all audio tracks
+      // Only audio tracks — video is captured by getDisplayMedia but never recorded
       const audioTracks = streams.flatMap((s) => s.getAudioTracks());
-      let recordStream: MediaStream;
 
+      if (audioTracks.length === 0) {
+        streams.forEach((s) => s.getTracks().forEach((t) => t.stop()));
+        throw new Error("Inga ljudkällor tillgängliga. Aktivera mikrofon eller systemljud.");
+      }
+
+      let recordStream: MediaStream;
       if (audioTracks.length === 1) {
         recordStream = new MediaStream(audioTracks);
       } else {
@@ -228,15 +206,23 @@ export default function Home() {
         const { title, issues } = await issuesRes.json();
         setStep(2);
 
-        const session = {
-          id: String(Date.now()),
+        // Step 3 – Persist to Supabase (only text, never audio)
+        const sessionPayload = {
           title,
           date: new Date().toISOString(),
           durationSec,
           transcript: segments,
           issues,
         };
-        sessionStorage.setItem("tarantula:session", JSON.stringify(session));
+        const saveRes = await fetch("/api/sessions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(sessionPayload),
+        });
+        const savedSession = saveRes.ok ? await saveRes.json() : { ...sessionPayload, id: String(Date.now()) };
+
+        sessionStorage.setItem("tarantula:session", JSON.stringify(savedSession));
+        setSessions((prev) => [savedSession, ...prev]);
 
         setTimeout(() => router.push("/review"), 600);
       } catch (err) {
@@ -310,15 +296,27 @@ export default function Home() {
                   Senaste inspelningar
                 </h2>
 
-                {MOCK_SESSIONS.length === 0 ? (
+                {sessions.length === 0 ? (
                   <EmptyState />
                 ) : (
                   <div className="flex flex-col gap-3">
-                    {MOCK_SESSIONS.map((s) => (
+                    {sessions.map((s) => (
                       <SessionCard
                         key={s.id}
                         session={s}
                         onClick={() => router.push(`/review?session=${s.id}`)}
+                        onDelete={() => {
+                          setSessions((prev) => prev.filter((x) => x.id !== s.id));
+                          fetch(`/api/sessions/${s.id}`, { method: "DELETE" }).catch(() => {});
+                        }}
+                        onTitleChange={(title) => {
+                          setSessions((prev) => prev.map((x) => x.id === s.id ? { ...x, title } : x));
+                          fetch(`/api/sessions/${s.id}`, {
+                            method: "PATCH",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ title }),
+                          }).catch(() => {});
+                        }}
                       />
                     ))}
                   </div>
@@ -688,12 +686,6 @@ function IdleState({
       {/* Capture-toggles */}
       <div className="flex items-center gap-3 flex-wrap justify-center">
         <CaptureToggle
-          label="Skärm"
-          Icon={MonitorUp}
-          checked={capture.screen}
-          onChange={(v) => onCapture({ ...capture, screen: v })}
-        />
-        <CaptureToggle
           label="Systemljud"
           Icon={Volume2}
           checked={capture.audio}
@@ -771,7 +763,6 @@ function RecordingState({
 
       {/* Aktiva källor */}
       <div className="flex items-center gap-3 text-xs" style={{ color: "var(--color-text-tertiary)" }}>
-        {capture.screen && <span>🖥 Skärm ●</span>}
         {capture.mic && <span>🎙 Mikrofon ●</span>}
         {capture.audio && (
           <span style={{ color: sysAudioMissing ? "var(--color-warning)" : undefined }}>
@@ -976,86 +967,160 @@ const PRIORITY_COLORS_MAP: Record<number, string> = {
   4: "var(--color-prio-low)",
 };
 
-function SessionCard({ session, onClick }: { session: Session; onClick: () => void }) {
+function SessionCard({
+  session,
+  onClick,
+  onDelete,
+  onTitleChange,
+}: {
+  session: Session;
+  onClick: () => void;
+  onDelete: () => void;
+  onTitleChange: (title: string) => void;
+}) {
+  const [hovered, setHovered] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(session.title);
+  const inputRef = useRef<HTMLInputElement>(null);
   const issueCount = session.issues.length;
   const topIssues = session.issues.slice(0, 3);
 
+  function startEdit(e: React.MouseEvent) {
+    e.stopPropagation();
+    setDraft(session.title);
+    setEditing(true);
+    setTimeout(() => inputRef.current?.select(), 0);
+  }
+
+  function commitEdit() {
+    setEditing(false);
+    const trimmed = draft.trim();
+    if (trimmed && trimmed !== session.title) onTitleChange(trimmed);
+    else setDraft(session.title);
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Enter") { e.preventDefault(); commitEdit(); }
+    if (e.key === "Escape") { setEditing(false); setDraft(session.title); }
+  }
+
   return (
-    <button
-      onClick={onClick}
-      className="w-full text-left p-5 rounded-[16px] transition-all duration-150"
+    <div
+      className="relative w-full p-5 rounded-[16px] transition-all duration-150"
       style={{
         background: "var(--color-surface)",
-        border: "1px solid var(--color-border)",
-        boxShadow: "var(--shadow-card)",
-        cursor: "pointer",
+        border: `1px solid ${hovered ? "var(--color-border-strong)" : "var(--color-border)"}`,
+        boxShadow: hovered ? "var(--shadow-card-hover)" : "var(--shadow-card)",
       }}
-      onMouseEnter={(e) => {
-        const el = e.currentTarget as HTMLElement;
-        el.style.boxShadow = "var(--shadow-card-hover)";
-        el.style.borderColor = "var(--color-border-strong)";
-      }}
-      onMouseLeave={(e) => {
-        const el = e.currentTarget as HTMLElement;
-        el.style.boxShadow = "var(--shadow-card)";
-        el.style.borderColor = "var(--color-border)";
-      }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
     >
-      {/* Rubrik + meta */}
-      <div className="flex items-start justify-between gap-4 mb-3">
-        <h3
-          className="text-base font-semibold leading-snug"
-          style={{ color: "var(--color-text)", letterSpacing: "-0.01em" }}
+      {/* Delete-knapp */}
+      {hovered && !editing && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onDelete(); }}
+          className="absolute top-3 right-3 p-1.5 rounded-input"
+          style={{ background: "var(--color-surface-inset)", border: "1px solid var(--color-border)", cursor: "pointer", color: "var(--color-text-tertiary)" }}
+          onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--color-danger)"; }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--color-text-tertiary)"; }}
+          aria-label="Ta bort inspelning"
         >
-          {session.title}
-        </h3>
+          <Trash2 size={14} strokeWidth={1.75} />
+        </button>
+      )}
+
+      {/* ID + rubrik */}
+      <div className="flex items-start gap-3 mb-1" style={{ paddingRight: hovered && !editing ? 32 : 0 }}>
+        <span
+          className="text-xs font-mono font-semibold mt-0.5 shrink-0"
+          style={{ color: "var(--color-text-tertiary)" }}
+        >
+          {sessionDisplayId(session.id)}
+        </span>
+
+        {editing ? (
+          <input
+            ref={inputRef}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commitEdit}
+            onKeyDown={handleKeyDown}
+            onClick={(e) => e.stopPropagation()}
+            className="flex-1 text-base font-semibold bg-transparent outline-none border-b"
+            style={{
+              color: "var(--color-text)",
+              letterSpacing: "-0.01em",
+              borderColor: "var(--color-primary)",
+              fontFamily: "inherit",
+            }}
+          />
+        ) : (
+          <button
+            onClick={onClick}
+            className="flex-1 text-left group"
+            style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}
+          >
+            <h3
+              className="text-base font-semibold leading-snug"
+              style={{ color: "var(--color-text)", letterSpacing: "-0.01em" }}
+            >
+              {session.title}
+              {hovered && (
+                <span
+                  onClick={startEdit}
+                  className="inline-flex items-center ml-1.5 align-middle opacity-0 group-hover:opacity-100"
+                  style={{ color: "var(--color-text-tertiary)", transition: "opacity 0.1s" }}
+                  title="Redigera titel"
+                >
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                    <path d="M8.5 1.5a1.414 1.414 0 012 2L3.5 10.5l-3 .5.5-3L8.5 1.5z" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </span>
+              )}
+            </h3>
+          </button>
+        )}
+
         <span
           className="text-xs font-medium shrink-0 px-2 py-0.5 rounded-full"
-          style={{
-            background: "var(--color-primary-soft)",
-            color: "var(--color-primary)",
-          }}
+          style={{ background: "var(--color-primary-soft)", color: "var(--color-primary)" }}
         >
           {issueCount} issues
         </span>
       </div>
 
-      <p
-        className="text-xs mb-3"
-        style={{ color: "var(--color-text-tertiary)" }}
-      >
-        {formatDate(session.date)} · {formatDuration(session.durationSec)}
-      </p>
+      <button onClick={onClick} className="w-full text-left" style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+        <p className="text-xs mb-3 ml-9" style={{ color: "var(--color-text-tertiary)" }}>
+          {formatDate(session.date)} · {formatDuration(session.durationSec)}
+        </p>
 
-      {/* Issue-bullets */}
-      <div className="flex flex-col gap-1.5 mb-4">
-        {topIssues.map((issue) => (
-          <div key={issue.id} className="flex items-start gap-2">
-            <div
-              className="mt-1.25 w-1.5 h-1.5 rounded-full shrink-0"
-              style={{ background: PRIORITY_COLORS_MAP[issue.priority] }}
-            />
-            <span
-              className="text-sm leading-snug"
-              style={{ color: "var(--color-text-secondary)" }}
-            >
-              {issue.title}
+        {/* Issue-bullets */}
+        <div className="flex flex-col gap-1.5 mb-4 ml-9">
+          {topIssues.map((issue) => (
+            <div key={issue.id} className="flex items-start gap-2">
+              <div
+                className="mt-1.25 w-1.5 h-1.5 rounded-full shrink-0"
+                style={{ background: PRIORITY_COLORS_MAP[issue.priority] }}
+              />
+              <span className="text-sm leading-snug" style={{ color: "var(--color-text-secondary)" }}>
+                {issue.title}
+              </span>
+            </div>
+          ))}
+          {issueCount > 3 && (
+            <span className="text-xs ml-3.5" style={{ color: "var(--color-text-tertiary)" }}>
+              + {issueCount - 3} till…
             </span>
-          </div>
-        ))}
-        {issueCount > 3 && (
-          <span className="text-xs ml-3.5" style={{ color: "var(--color-text-tertiary)" }}>
-            + {issueCount - 3} till…
-          </span>
-        )}
-      </div>
+          )}
+        </div>
 
-      {/* Footer */}
-      <div className="flex items-center gap-1" style={{ color: "var(--color-primary)" }}>
-        <span className="text-sm font-medium">Granska issues</span>
-        <ArrowUpRight size={15} strokeWidth={2} />
-      </div>
-    </button>
+        {/* Footer */}
+        <div className="flex items-center gap-1 ml-9" style={{ color: "var(--color-primary)" }}>
+          <span className="text-sm font-medium">Granska issues</span>
+          <ArrowUpRight size={15} strokeWidth={2} />
+        </div>
+      </button>
+    </div>
   );
 }
 
