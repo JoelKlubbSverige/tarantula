@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import {
@@ -83,6 +83,14 @@ function sessionDisplayId(id: string) {
 const EMPTY_SESSION: Session = { id: "", title: "", date: new Date().toISOString(), durationSec: 0, transcript: [], issues: [] };
 
 export default function ReviewPage() {
+  return (
+    <Suspense>
+      <ReviewPageInner />
+    </Suspense>
+  );
+}
+
+function ReviewPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [session, setSession] = useState<Session>(EMPTY_SESSION);
