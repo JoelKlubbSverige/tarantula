@@ -963,7 +963,20 @@ function IssueCard({
       <div className="flex items-center justify-between mt-2 pt-2" style={{ borderTop: "1px solid var(--color-border)" }}>
         <StatusBadge status={issue.status} />
 
-        <div>
+        <div className="flex items-center gap-2">
+          {(issue.status === "draft" || issue.status === "error") && (
+            <button
+              onClick={() => onUpdate({ status: "resolved" })}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-button text-sm font-medium transition-all"
+              style={{ background: "none", border: "1px solid var(--color-border)", cursor: "pointer", color: "var(--color-text-secondary)" }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "var(--color-surface-inset)"; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "none"; }}
+            >
+              <Check size={13} strokeWidth={2} />
+              Redan åtgärdat
+            </button>
+          )}
+
           {(issue.status === "draft" || issue.status === "error") && (
             <button
               onClick={onSend}
@@ -1168,6 +1181,13 @@ function MetaMultiSelect({
 
 /* ── Status-badge ───────────────────────────────────────────── */
 function StatusBadge({ status }: { status: LinearIssue["status"] }) {
+  if (status === "resolved") return (
+    <span className="flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full"
+      style={{ background: "var(--color-surface-inset)", color: "var(--color-text-tertiary)", border: "1px solid var(--color-border)" }}>
+      <Check size={11} strokeWidth={2.5} />
+      Redan åtgärdat
+    </span>
+  );
   if (status === "draft") return (
     <span className="text-xs font-medium px-2 py-0.5 rounded-full"
       style={{ background: "var(--color-surface-inset)", color: "var(--color-text-tertiary)", border: "1px solid var(--color-border)" }}>

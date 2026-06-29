@@ -11,7 +11,7 @@ export interface LinearIssue {
   cycleId?: string;
   estimate?: number;
   teamId: string;
-  status: "draft" | "sending" | "sent" | "error";
+  status: "draft" | "sending" | "sent" | "error" | "resolved";
   linearUrl?: string;
   error?: string;
   sourceTimecode?: string;
