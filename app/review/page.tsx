@@ -388,6 +388,7 @@ function ReviewPageInner() {
       <ChatWidget
         transcript={session.transcript.map((s) => `[${formatTimecode(s.start)}] ${s.text}`).join("\n")}
         currentIssues={issues.map((i) => i.title)}
+        darkMode={darkMode}
         onAddIssues={(newIssues) => {
           const mapped: LinearIssue[] = newIssues.map((iss, idx) => ({
             id: `chat-${Date.now()}-${idx}`,
@@ -418,10 +419,12 @@ interface ChatIssue { title: string; description: string; priority: number }
 function ChatWidget({
   transcript,
   currentIssues,
+  darkMode,
   onAddIssues,
 }: {
   transcript: string;
   currentIssues: string[];
+  darkMode: boolean;
   onAddIssues: (issues: ChatIssue[]) => void;
 }) {
   const INITIAL_MESSAGES: ChatMessage[] = [
@@ -622,7 +625,9 @@ function ChatWidget({
                   className="text-sm leading-relaxed px-3.5 py-2.5 rounded-2xl max-w-[85%]"
                   style={
                     msg.role === "user"
-                      ? { background: "var(--color-primary)", color: "#fff", borderBottomRightRadius: 6 }
+                      ? darkMode
+                        ? { background: "#FFFFFF", color: "#111111", borderBottomRightRadius: 6 }
+                        : { background: "#18181B", color: "#fff", borderBottomRightRadius: 6 }
                       : { background: "var(--color-surface-inset)", color: "var(--color-text)", border: "1px solid var(--color-border)", borderBottomLeftRadius: 6 }
                   }
                 >
@@ -710,9 +715,9 @@ function ChatWidget({
               rows={1}
               className="flex-1 resize-none text-sm rounded-input px-3 py-2 outline-none"
               style={{
-                background: "var(--color-surface-inset)",
+                background: darkMode ? "#FFFFFF" : "var(--color-surface-inset)",
                 border: "1px solid var(--color-border)",
-                color: "var(--color-text)",
+                color: darkMode ? "#111111" : "var(--color-text)",
                 fontFamily: "inherit",
                 lineHeight: 1.5,
                 maxHeight: 100,
@@ -740,6 +745,7 @@ function ChatWidget({
 
 /* ── Sidofält ───────────────────────────────────────────────── */
 function ReviewSidebar({ darkMode, setDarkMode }: { darkMode: boolean; setDarkMode: (v: boolean) => void }) {
+  const router = useRouter();
   return (
     <aside
       className="flex flex-col w-66 shrink-0 p-5"
@@ -754,18 +760,21 @@ function ReviewSidebar({ darkMode, setDarkMode }: { darkMode: boolean; setDarkMo
 
       <nav className="flex flex-col gap-1">
         {[
-          { label: "Spela in", Icon: Disc },
-          { label: "Historik", Icon: History },
-          { label: "Inställningar", Icon: Settings },
-        ].map(({ label, Icon }) => (
-          <div
+          { label: "Spela in", Icon: Disc, onClick: () => router.push("/") },
+          { label: "Historik", Icon: History, onClick: () => router.push("/history") },
+          { label: "Inställningar", Icon: Settings, onClick: undefined },
+        ].map(({ label, Icon, onClick }) => (
+          <button
             key={label}
-            className="flex items-center gap-2.5 px-2.5 py-2 rounded-input text-sm font-medium"
-            style={{ color: "var(--color-text-secondary)" }}
+            onClick={onClick}
+            className="flex items-center gap-2.5 px-2.5 py-2 rounded-input text-sm font-medium w-full text-left transition-colors duration-100"
+            style={{ color: "var(--color-text-secondary)", cursor: "pointer", background: "transparent", border: "none" }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "var(--color-surface-inset)"; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
           >
             <Icon size={18} strokeWidth={1.75} />
             {label}
-          </div>
+          </button>
         ))}
       </nav>
 

@@ -417,10 +417,11 @@ function Sidebar({
   darkMode: boolean;
   setDarkMode: (v: boolean) => void;
 }) {
+  const router = useRouter();
   const NAV = [
-    { id: "record" as const, label: "Spela in", Icon: Disc },
-    { id: "history" as const, label: "Historik", Icon: History },
-    { id: "settings" as const, label: "Inställningar", Icon: Settings },
+    { id: "record" as const, label: "Spela in", Icon: Disc, onClick: () => onNav("record") },
+    { id: "history" as const, label: "Historik", Icon: History, onClick: () => router.push("/history") },
+    { id: "settings" as const, label: "Inställningar", Icon: Settings, onClick: () => onNav("settings") },
   ];
 
   return (
@@ -450,12 +451,12 @@ function Sidebar({
 
       {/* Nav */}
       <nav className="flex flex-col gap-1">
-        {NAV.map(({ id, label, Icon }) => {
+        {NAV.map(({ id, label, Icon, onClick }) => {
           const active = activeNav === id;
           return (
             <button
               key={id}
-              onClick={() => onNav(id)}
+              onClick={onClick}
               className="flex items-center gap-2.5 px-2.5 py-2 rounded-input text-left transition-colors duration-100 w-full text-sm font-medium"
               style={{
                 background: active
@@ -1183,13 +1184,6 @@ function CaptureToggle({
 
 /* ── SessionCard ────────────────────────────────────────────── */
 
-const PRIORITY_COLORS_MAP: Record<number, string> = {
-  0: "var(--color-prio-none)",
-  1: "var(--color-prio-urgent)",
-  2: "var(--color-prio-high)",
-  3: "var(--color-prio-medium)",
-  4: "var(--color-prio-low)",
-};
 
 const CARD_GRADIENT = "linear-gradient(160deg, #0A0A0A 0%, #181818 60%, #262626 100%)";
 
@@ -1380,7 +1374,11 @@ function SessionCard({
             <div key={issue.id} className="flex items-start gap-2">
               <div
                 className="mt-1.25 w-1.5 h-1.5 rounded-full shrink-0"
-                style={{ background: PRIORITY_COLORS_MAP[issue.priority] }}
+                style={{
+                  background: (issue.status === "sent" || issue.status === "resolved")
+                    ? "var(--color-success)"
+                    : "#3B82F6",
+                }}
               />
               <span
                 className="text-sm leading-snug"
