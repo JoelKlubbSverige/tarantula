@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef, Suspense } from "react";
+import { createPortal } from "react-dom";
 import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import {
@@ -165,6 +166,9 @@ function ReviewPageInner() {
 
   const deleteIssue = useCallback((id: string) => {
     setIssues((prev) => prev.filter((i) => i.id !== id));
+    if (isDbId(id)) {
+      fetch(`/api/issues/${id}`, { method: "DELETE" }).catch(() => {});
+    }
   }, []);
 
   const sendIssue = useCallback(async (id: string) => {
@@ -211,6 +215,7 @@ function ReviewPageInner() {
   }, [issues, sendIssue]);
 
   const pendingCount = issues.filter((i) => i.status === "draft" || i.status === "error").length;
+  const [showNewIssue, setShowNewIssue] = useState(false);
 
   if (loading) {
     return (
@@ -325,16 +330,44 @@ function ReviewPageInner() {
                     <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>
                       GPT-4o hittade inga tydliga åtgärder. Skapa en issue manuellt.
                     </p>
-                    <button
-                      className="flex items-center gap-1.5 text-sm font-medium"
-                      style={{ color: "var(--color-primary)", background: "none", border: "none", cursor: "pointer" }}
-                    >
-                      <Plus size={14} />
-                      Ny issue
-                    </button>
                   </div>
                 )}
+
+                {/* Always-visible new issue button */}
+                <button
+                  onClick={() => setShowNewIssue(true)}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-card text-sm font-medium w-full transition-colors"
+                  style={{
+                    border: "1px dashed var(--color-border)",
+                    color: "var(--color-text-tertiary)",
+                    background: "transparent",
+                    cursor: "pointer",
+                  }}
+                  onMouseEnter={(e) => {
+                    (e.currentTarget as HTMLElement).style.borderColor = "var(--color-border-strong)";
+                    (e.currentTarget as HTMLElement).style.color = "var(--color-text-secondary)";
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.currentTarget as HTMLElement).style.borderColor = "var(--color-border)";
+                    (e.currentTarget as HTMLElement).style.color = "var(--color-text-tertiary)";
+                  }}
+                >
+                  <Plus size={14} />
+                  Ny issue
+                </button>
               </div>
+
+              {showNewIssue && (
+                <NewIssueModal
+                  meta={meta}
+                  sessionId={session.id}
+                  onClose={() => setShowNewIssue(false)}
+                  onCreated={(issue) => {
+                    setIssues((prev) => [...prev, issue]);
+                    setShowNewIssue(false);
+                  }}
+                />
+              )}
             </div>
 
             <TranscriptRail segments={session.transcript} highlightedTime={highlightedTime} />
@@ -748,6 +781,230 @@ function ReviewSidebar() {
 /* ── Issue-kort ─────────────────────────────────────────────── */
 const PRIORITIES: Priority[] = [1, 2, 3, 4, 0];
 
+/* ── NewIssueModal ──────────────────────────────────────────── */
+function NewIssueModal({
+  meta,
+  sessionId,
+  onClose,
+  onCreated,
+}: {
+  meta: LinearMeta | null;
+  sessionId: string;
+  onClose: () => void;
+  onCreated: (issue: LinearIssue) => void;
+}) {
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [priority, setPriority] = useState<Priority>(3);
+  const [assigneeId, setAssigneeId] = useState<string | undefined>();
+  const [projectId, setProjectId] = useState<string | undefined>();
+  const [cycleId, setCycleId] = useState<string | undefined>();
+  const [estimate, setEstimate] = useState<string | undefined>();
+  const [labelIds, setLabelIds] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+  const titleRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { titleRef.current?.focus(); }, []);
+
+  // Close on Escape
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", h);
+    return () => document.removeEventListener("keydown", h);
+  }, [onClose]);
+
+  async function create() {
+    if (!title.trim()) return;
+    setSaving(true);
+    try {
+      const res = await fetch("/api/issues", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionId,
+          title,
+          description,
+          priority,
+          labelIds,
+          assigneeId,
+          projectId,
+          cycleId,
+          estimate: estimate !== undefined ? Number(estimate) : undefined,
+        }),
+      });
+      const issue = await res.json();
+      if (!issue.id) throw new Error(issue.error);
+      onCreated(issue);
+    } catch {
+      /* silently fail — issue added to local state anyway */
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const priorityEntries = Object.entries(PRIORITY_LABELS) as [string, string][];
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div
+        onClick={onClose}
+        style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", zIndex: 60 }}
+      />
+
+      {/* Modal */}
+      <div
+        style={{
+          position: "fixed",
+          top: "50%", left: "50%",
+          transform: "translate(-50%, -50%)",
+          width: 560,
+          background: "var(--color-surface)",
+          borderRadius: 16,
+          boxShadow: "var(--shadow-popover)",
+          border: "1px solid var(--color-border)",
+          zIndex: 61,
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
+        }}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 pt-4 pb-2">
+          <span className="text-xs font-semibold" style={{ color: "var(--color-text-tertiary)" }}>Ny issue</span>
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--color-text-tertiary)" }}>
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Title */}
+        <input
+          ref={titleRef}
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && title.trim()) create(); }}
+          placeholder="Issue-titel"
+          style={{
+            border: "none", outline: "none", background: "transparent",
+            fontSize: 20, fontWeight: 700, letterSpacing: "-0.02em",
+            color: "var(--color-text)", padding: "4px 20px 6px",
+            width: "100%",
+          }}
+        />
+
+        {/* Description */}
+        <textarea
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="Lägg till beskrivning…"
+          rows={4}
+          style={{
+            border: "none", outline: "none", background: "transparent", resize: "none",
+            fontSize: 14, color: "var(--color-text-secondary)", padding: "4px 20px 12px",
+            width: "100%", fontFamily: "inherit", lineHeight: 1.6,
+          }}
+        />
+
+        {/* Meta toolbar */}
+        <div
+          className="flex flex-wrap items-center gap-2 px-5 py-3"
+          style={{ borderTop: "1px solid var(--color-border)" }}
+        >
+          {/* Priority */}
+          <MetaSelect
+            icon={<Flag size={12} />}
+            placeholder="Prioritet"
+            value={String(priority)}
+            options={priorityEntries.filter(([k]) => k !== "0").map(([k, v]) => ({ id: k, label: v }))}
+            onChange={(v) => setPriority((v ? Number(v) : 3) as Priority)}
+          />
+
+          {/* Assignee */}
+          <MetaSelect
+            icon={<User size={12} />}
+            placeholder="Assignee"
+            value={assigneeId}
+            options={meta?.users.map((u) => ({ id: u.id, label: u.displayName || u.name, avatar: { url: u.avatarUrl, name: u.displayName || u.name } })) ?? []}
+            onChange={setAssigneeId}
+            disabled={!meta}
+          />
+
+          {/* Project */}
+          <MetaSelect
+            icon={<Layers size={12} />}
+            placeholder="Projekt"
+            value={projectId}
+            options={meta?.projects.map((p) => ({ id: p.id, label: p.name, prefix: <ProjectIcon icon={p.icon} color={p.color} size={14} /> })) ?? []}
+            onChange={setProjectId}
+            disabled={!meta}
+          />
+
+          {/* Estimate */}
+          <MetaSelect
+            icon={<Hash size={12} />}
+            placeholder="Estimate"
+            value={estimate}
+            options={ESTIMATES.map((e) => ({ id: String(e.value), label: e.label }))}
+            onChange={setEstimate}
+          />
+
+          {/* Cycle */}
+          {meta && meta.cycles.length > 0 && (
+            <MetaSelect
+              icon={<RefreshCw size={12} />}
+              placeholder="Cykel"
+              value={cycleId}
+              options={meta.cycles.map((c) => ({
+                id: c.id,
+                label: c.name || `Sprint ${c.number}`,
+              }))}
+              onChange={setCycleId}
+            />
+          )}
+
+          {/* Labels */}
+          {meta && meta.labels.length > 0 && (
+            <MetaMultiSelect
+              placeholder="Labels"
+              selected={labelIds}
+              options={meta.labels.map((l) => ({ id: l.id, label: l.name, color: l.color }))}
+              onChange={setLabelIds}
+            />
+          )}
+        </div>
+
+        {/* Footer */}
+        <div
+          className="flex items-center justify-end gap-2 px-5 py-3"
+          style={{ borderTop: "1px solid var(--color-border)" }}
+        >
+          <button
+            onClick={onClose}
+            className="px-4 py-1.5 rounded-button text-sm font-medium"
+            style={{ background: "none", border: "1px solid var(--color-border)", color: "var(--color-text-secondary)", cursor: "pointer" }}
+          >
+            Avbryt
+          </button>
+          <button
+            onClick={create}
+            disabled={!title.trim() || saving}
+            className="flex items-center gap-2 px-4 py-1.5 rounded-button text-sm font-semibold text-white"
+            style={{
+              background: title.trim() && !saving ? "var(--gradient-record)" : "var(--color-border)",
+              border: "none",
+              cursor: title.trim() && !saving ? "pointer" : "default",
+              boxShadow: title.trim() && !saving ? "var(--shadow-record)" : "none",
+            }}
+          >
+            {saving && <Loader2 size={13} className="animate-spin" />}
+            Skapa issue
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
 function IssueCard({
   issue,
   meta,
@@ -1141,22 +1398,88 @@ function MetaSelect({
   disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState({ top: 0, left: 0 });
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const dropRef = useRef<HTMLDivElement>(null);
   const selected = options.find((o) => o.id === value);
+
+  const openDropdown = () => {
+    if (disabled) return;
+    if (btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect();
+      setPos({ top: r.bottom + 4, left: r.left });
+    }
+    setOpen((v) => !v);
+  };
 
   useEffect(() => {
     if (!open) return;
     const h = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      if (
+        btnRef.current && !btnRef.current.contains(e.target as Node) &&
+        dropRef.current && !dropRef.current.contains(e.target as Node)
+      ) setOpen(false);
     };
     document.addEventListener("mousedown", h);
     return () => document.removeEventListener("mousedown", h);
   }, [open]);
 
+  const dropdown = open ? (
+    <div
+      ref={dropRef}
+      className="rounded-card p-1 min-w-44 max-h-52 overflow-y-auto"
+      style={{
+        position: "fixed",
+        top: pos.top,
+        left: pos.left,
+        zIndex: 9999,
+        background: "var(--color-surface)",
+        border: "1px solid var(--color-border)",
+        boxShadow: "var(--shadow-popover)",
+      }}
+    >
+      {value && (
+        <button
+          onClick={() => { onChange(undefined); setOpen(false); }}
+          className="flex w-full px-2.5 py-1.5 rounded-input text-xs text-left"
+          style={{ color: "var(--color-text-tertiary)", background: "transparent", border: "none", cursor: "pointer" }}
+          onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = "var(--color-surface-inset)")}
+          onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = "transparent")}
+        >
+          — Ingen
+        </button>
+      )}
+      {options.map((o) => (
+        <button
+          key={o.id}
+          onClick={() => { onChange(o.id); setOpen(false); }}
+          className="flex items-center gap-2 w-full px-2.5 py-1.5 rounded-input text-xs font-medium text-left"
+          style={{
+            background: o.id === value ? "var(--color-surface-inset)" : "transparent",
+            color: "var(--color-text)",
+            border: "none",
+            cursor: "pointer",
+          }}
+          onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = "var(--color-surface-inset)")}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLElement).style.background =
+              o.id === value ? "var(--color-surface-inset)" : "transparent";
+          }}
+        >
+          {o.avatar
+            ? <Avatar url={o.avatar.url} name={o.avatar.name} size={16} />
+            : o.prefix ?? <span style={{ width: 10 }}>{o.id === value && <Check size={10} strokeWidth={2.5} />}</span>}
+          {o.label}
+        </button>
+      ))}
+    </div>
+  ) : null;
+
   return (
-    <div className="relative" ref={ref}>
+    <div className="relative">
       <button
-        onClick={() => !disabled && setOpen((v) => !v)}
+        ref={btnRef}
+        onClick={openDropdown}
         className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-colors"
         style={{
           background: selected ? "var(--color-surface-inset)" : "transparent",
@@ -1172,48 +1495,7 @@ function MetaSelect({
         {selected ? selected.label : placeholder}
         <ChevronDown size={10} />
       </button>
-
-      {open && (
-        <div
-          className="absolute top-8 left-0 z-20 rounded-card p-1 min-w-44 max-h-52 overflow-y-auto"
-          style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", boxShadow: "var(--shadow-popover)" }}
-        >
-          {value && (
-            <button
-              onClick={() => { onChange(undefined); setOpen(false); }}
-              className="flex w-full px-2.5 py-1.5 rounded-input text-xs text-left"
-              style={{ color: "var(--color-text-tertiary)", background: "transparent", border: "none", cursor: "pointer" }}
-              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = "var(--color-surface-inset)")}
-              onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = "transparent")}
-            >
-              — Ingen
-            </button>
-          )}
-          {options.map((o) => (
-            <button
-              key={o.id}
-              onClick={() => { onChange(o.id); setOpen(false); }}
-              className="flex items-center gap-2 w-full px-2.5 py-1.5 rounded-input text-xs font-medium text-left"
-              style={{
-                background: o.id === value ? "var(--color-surface-inset)" : "transparent",
-                color: "var(--color-text)",
-                border: "none",
-                cursor: "pointer",
-              }}
-              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = "var(--color-surface-inset)")}
-              onMouseLeave={(e) => {
-                (e.currentTarget as HTMLElement).style.background =
-                  o.id === value ? "var(--color-surface-inset)" : "transparent";
-              }}
-            >
-              {o.avatar
-                ? <Avatar url={o.avatar.url} name={o.avatar.name} size={16} />
-                : o.prefix ?? <span style={{ width: 10 }}>{o.id === value && <Check size={10} strokeWidth={2.5} />}</span>}
-              {o.label}
-            </button>
-          ))}
-        </div>
-      )}
+      {typeof document !== "undefined" && createPortal(dropdown, document.body)}
     </div>
   );
 }
@@ -1231,12 +1513,25 @@ function MetaMultiSelect({
   onChange: (ids: string[]) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState({ top: 0, left: 0 });
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const dropRef = useRef<HTMLDivElement>(null);
+
+  const openDropdown = () => {
+    if (btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect();
+      setPos({ top: r.bottom + 4, left: r.left });
+    }
+    setOpen((v) => !v);
+  };
 
   useEffect(() => {
     if (!open) return;
     const h = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      if (
+        btnRef.current && !btnRef.current.contains(e.target as Node) &&
+        dropRef.current && !dropRef.current.contains(e.target as Node)
+      ) setOpen(false);
     };
     document.addEventListener("mousedown", h);
     return () => document.removeEventListener("mousedown", h);
@@ -1246,10 +1541,53 @@ function MetaMultiSelect({
     onChange(selected.includes(id) ? selected.filter((s) => s !== id) : [...selected, id]);
   };
 
+  const dropdown = open ? (
+    <div
+      ref={dropRef}
+      className="rounded-card p-1 min-w-44 max-h-52 overflow-y-auto"
+      style={{
+        position: "fixed",
+        top: pos.top,
+        left: pos.left,
+        zIndex: 9999,
+        background: "var(--color-surface)",
+        border: "1px solid var(--color-border)",
+        boxShadow: "var(--shadow-popover)",
+      }}
+    >
+      {options.map((o) => (
+        <button
+          key={o.id}
+          onClick={() => toggle(o.id)}
+          className="flex items-center gap-2 w-full px-2.5 py-1.5 rounded-input text-xs font-medium text-left"
+          style={{
+            background: selected.includes(o.id) ? "var(--color-surface-inset)" : "transparent",
+            color: "var(--color-text)",
+            border: "none",
+            cursor: "pointer",
+          }}
+          onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = "var(--color-surface-inset)")}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLElement).style.background =
+              selected.includes(o.id) ? "var(--color-surface-inset)" : "transparent";
+          }}
+        >
+          <div
+            className="w-2 h-2 rounded-full shrink-0"
+            style={{ background: o.color ?? "var(--color-text-tertiary)" }}
+          />
+          {o.label}
+          {selected.includes(o.id) && <Check size={10} strokeWidth={2.5} className="ml-auto" />}
+        </button>
+      ))}
+    </div>
+  ) : null;
+
   return (
-    <div className="relative" ref={ref}>
+    <div className="relative">
       <button
-        onClick={() => setOpen((v) => !v)}
+        ref={btnRef}
+        onClick={openDropdown}
         className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
         style={{
           background: selected.length ? "var(--color-surface-inset)" : "transparent",
@@ -1258,43 +1596,25 @@ function MetaMultiSelect({
           cursor: "pointer",
         }}
       >
-        <Hash size={12} />
-        {selected.length ? `${selected.length} label${selected.length > 1 ? "s" : ""}` : placeholder}
+        {selected.length === 0 && <><Hash size={12} />{placeholder}</>}
+        {selected.length === 1 && (() => {
+          const o = options.find((x) => x.id === selected[0]);
+          return <>
+            <div className="w-2 h-2 rounded-full shrink-0" style={{ background: o?.color ?? "var(--color-text-tertiary)" }} />
+            {o?.label ?? "1 label"}
+          </>;
+        })()}
+        {selected.length > 1 && <>
+          <div className="flex items-center gap-0.5">
+            {options.filter((o) => selected.includes(o.id)).slice(0, 4).map((o) => (
+              <div key={o.id} className="w-2 h-2 rounded-full shrink-0" style={{ background: o.color ?? "var(--color-text-tertiary)" }} />
+            ))}
+          </div>
+          {selected.length} labels
+        </>}
         <ChevronDown size={10} />
       </button>
-
-      {open && (
-        <div
-          className="absolute top-8 left-0 z-20 rounded-card p-1 min-w-44 max-h-52 overflow-y-auto"
-          style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", boxShadow: "var(--shadow-popover)" }}
-        >
-          {options.map((o) => (
-            <button
-              key={o.id}
-              onClick={() => toggle(o.id)}
-              className="flex items-center gap-2 w-full px-2.5 py-1.5 rounded-input text-xs font-medium text-left"
-              style={{
-                background: selected.includes(o.id) ? "var(--color-surface-inset)" : "transparent",
-                color: "var(--color-text)",
-                border: "none",
-                cursor: "pointer",
-              }}
-              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = "var(--color-surface-inset)")}
-              onMouseLeave={(e) => {
-                (e.currentTarget as HTMLElement).style.background =
-                  selected.includes(o.id) ? "var(--color-surface-inset)" : "transparent";
-              }}
-            >
-              <div
-                className="w-2 h-2 rounded-full shrink-0"
-                style={{ background: o.color ?? "var(--color-text-tertiary)" }}
-              />
-              {o.label}
-              {selected.includes(o.id) && <Check size={10} strokeWidth={2.5} className="ml-auto" />}
-            </button>
-          ))}
-        </div>
-      )}
+      {typeof document !== "undefined" && createPortal(dropdown, document.body)}
     </div>
   );
 }
