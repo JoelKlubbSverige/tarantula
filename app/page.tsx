@@ -27,12 +27,11 @@ type CaptureSource = { audio: boolean; mic: boolean };
 
 const WAVEFORM_COUNT = 32;
 const WAVEFORM_DELAYS = Array.from({ length: WAVEFORM_COUNT }, (_, i) =>
-  ((i * 0.07) % 0.8).toFixed(2)
+  ((i * 0.07) % 0.8).toFixed(2),
 );
 const WAVEFORM_DURATIONS = Array.from({ length: WAVEFORM_COUNT }, (_, i) =>
-  (0.45 + ((i * 0.13) % 0.5)).toFixed(2)
+  (0.45 + ((i * 0.13) % 0.5)).toFixed(2),
 );
-
 
 function formatDuration(sec: number) {
   const h = Math.floor(sec / 3600);
@@ -51,13 +50,17 @@ function formatDate(iso: string) {
 }
 
 function sessionDisplayId(id: string): string {
-  const num = parseInt(id.replace(/-/g, "").slice(-8), 16) % 9000 + 1000;
+  const num = (parseInt(id.replace(/-/g, "").slice(-8), 16) % 9000) + 1000;
   return `#${num}`;
 }
 
 function formatTimer(sec: number) {
-  const h = Math.floor(sec / 3600).toString().padStart(2, "0");
-  const m = Math.floor((sec % 3600) / 60).toString().padStart(2, "0");
+  const h = Math.floor(sec / 3600)
+    .toString()
+    .padStart(2, "0");
+  const m = Math.floor((sec % 3600) / 60)
+    .toString()
+    .padStart(2, "0");
   const s = (sec % 60).toString().padStart(2, "0");
   return `${h}:${m}:${s}`;
 }
@@ -67,14 +70,34 @@ export default function Home() {
   const [status, setStatus] = useState<AppStatus>("idle");
   const [elapsed, setElapsed] = useState(0);
   const [step, setStep] = useState<ProcessingStep>(0);
-  const [capture, setCapture] = useState<CaptureSource>({ audio: false, mic: true });
-  const [activeNav, setActiveNav] = useState<"record" | "history" | "settings">("record");
+  const [capture, setCapture] = useState<CaptureSource>({
+    audio: false,
+    mic: true,
+  });
+  const [activeNav, setActiveNav] = useState<"record" | "history" | "settings">(
+    "record",
+  );
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [darkMode, setDarkMode] = useState(() => {
+    if (typeof window !== "undefined")
+      return localStorage.getItem("tarantula:dark") === "1";
+    return false;
+  });
+
+  useEffect(() => {
+    document.documentElement.setAttribute(
+      "data-theme",
+      darkMode ? "dark" : "light",
+    );
+    localStorage.setItem("tarantula:dark", darkMode ? "1" : "0");
+  }, [darkMode]);
 
   useEffect(() => {
     fetch("/api/sessions")
       .then((r) => r.json())
-      .then((data) => { if (Array.isArray(data)) setSessions(data); })
+      .then((data) => {
+        if (Array.isArray(data)) setSessions(data);
+      })
       .catch(() => {});
   }, []);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -87,9 +110,18 @@ export default function Home() {
   const [sysAudioMissing, setSysAudioMissing] = useState(false);
 
   function getSupportedMimeType() {
-    const types = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"];
+    const types = [
+      "audio/webm;codecs=opus",
+      "audio/webm",
+      "audio/mp4",
+      "audio/ogg;codecs=opus",
+    ];
     for (const t of types) {
-      if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(t)) return t;
+      if (
+        typeof MediaRecorder !== "undefined" &&
+        MediaRecorder.isTypeSupported(t)
+      )
+        return t;
     }
     return "";
   }
@@ -127,7 +159,9 @@ export default function Home() {
 
       if (audioTracks.length === 0) {
         streams.forEach((s) => s.getTracks().forEach((t) => t.stop()));
-        throw new Error("Inga ljudkällor tillgängliga. Aktivera mikrofon eller systemljud.");
+        throw new Error(
+          "Inga ljudkällor tillgängliga. Aktivera mikrofon eller systemljud.",
+        );
       }
 
       let recordStream: MediaStream;
@@ -145,8 +179,13 @@ export default function Home() {
 
       streamsRef.current = streams;
       const mimeType = getSupportedMimeType();
-      const recorder = new MediaRecorder(recordStream, mimeType ? { mimeType } : {});
-      recorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
+      const recorder = new MediaRecorder(
+        recordStream,
+        mimeType ? { mimeType } : {},
+      );
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
+      };
       mediaRecorderRef.current = recorder;
       recorder.start(1000);
 
@@ -154,7 +193,10 @@ export default function Home() {
       setElapsed(0);
       elapsedRef.current = 0;
       timerRef.current = setInterval(() => {
-        setElapsed((e) => { elapsedRef.current = e + 1; return e + 1; });
+        setElapsed((e) => {
+          elapsedRef.current = e + 1;
+          return e + 1;
+        });
       }, 1000);
     } catch (err) {
       streams.forEach((s) => s.getTracks().forEach((t) => t.stop()));
@@ -178,14 +220,21 @@ export default function Home() {
       setProcessingError(null);
 
       const mimeType = chunksRef.current[0]?.type || "audio/webm";
-      const ext = mimeType.includes("mp4") ? "mp4" : mimeType.includes("ogg") ? "ogg" : "webm";
+      const ext = mimeType.includes("mp4")
+        ? "mp4"
+        : mimeType.includes("ogg")
+          ? "ogg"
+          : "webm";
       const blob = new Blob(chunksRef.current, { type: mimeType });
 
       try {
         // Step 1 – Whisper
         const fd = new FormData();
         fd.append("audio", blob, `recording.${ext}`);
-        const transcribeRes = await fetch("/api/transcribe", { method: "POST", body: fd });
+        const transcribeRes = await fetch("/api/transcribe", {
+          method: "POST",
+          body: fd,
+        });
         if (!transcribeRes.ok) {
           const e = await transcribeRes.json().catch(() => ({}));
           throw new Error(e.error ?? "Transkribering misslyckades");
@@ -219,9 +268,14 @@ export default function Home() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(sessionPayload),
         });
-        const savedSession = saveRes.ok ? await saveRes.json() : { ...sessionPayload, id: String(Date.now()) };
+        const savedSession = saveRes.ok
+          ? await saveRes.json()
+          : { ...sessionPayload, id: String(Date.now()) };
 
-        sessionStorage.setItem("tarantula:session", JSON.stringify(savedSession));
+        sessionStorage.setItem(
+          "tarantula:session",
+          JSON.stringify(savedSession),
+        );
         setSessions((prev) => [savedSession, ...prev]);
 
         setTimeout(() => router.push("/review"), 600);
@@ -247,7 +301,10 @@ export default function Home() {
   const isProcessing = status === "processing";
 
   return (
-    <div className="flex h-full p-4" style={{ background: "var(--color-app-bg)" }}>
+    <div
+      className="flex h-full p-4"
+      style={{ background: "var(--color-app-bg)" }}
+    >
       {/* App-skal */}
       <div
         className="flex flex-1 overflow-hidden"
@@ -258,7 +315,12 @@ export default function Home() {
         }}
       >
         {/* ── Sidofält ───────────────────────────────────── */}
-        <Sidebar activeNav={activeNav} onNav={setActiveNav} />
+        <Sidebar
+          activeNav={activeNav}
+          onNav={setActiveNav}
+          darkMode={darkMode}
+          setDarkMode={setDarkMode}
+        />
 
         {/* ── Main ────────────────────────────────────────── */}
         <div className="flex flex-1 flex-col min-w-0">
@@ -291,7 +353,10 @@ export default function Home() {
               <div className="mt-8">
                 <h2
                   className="text-lg font-semibold mb-4"
-                  style={{ color: "var(--color-text)", letterSpacing: "-0.01em" }}
+                  style={{
+                    color: "var(--color-text)",
+                    letterSpacing: "-0.01em",
+                  }}
                 >
                   Senaste inspelningar
                 </h2>
@@ -306,17 +371,26 @@ export default function Home() {
                         session={s}
                         onClick={() => router.push(`/review?session=${s.id}`)}
                         onDelete={() => {
-                          setSessions((prev) => prev.filter((x) => x.id !== s.id));
-                          fetch(`/api/sessions/${s.id}`, { method: "DELETE" }).catch(() => {});
+                          setSessions((prev) =>
+                            prev.filter((x) => x.id !== s.id),
+                          );
+                          fetch(`/api/sessions/${s.id}`, {
+                            method: "DELETE",
+                          }).catch(() => {});
                         }}
                         onTitleChange={(title) => {
-                          setSessions((prev) => prev.map((x) => x.id === s.id ? { ...x, title } : x));
+                          setSessions((prev) =>
+                            prev.map((x) =>
+                              x.id === s.id ? { ...x, title } : x,
+                            ),
+                          );
                           fetch(`/api/sessions/${s.id}`, {
                             method: "PATCH",
                             headers: { "Content-Type": "application/json" },
                             body: JSON.stringify({ title }),
                           }).catch(() => {});
                         }}
+                        darkMode={darkMode}
                       />
                     ))}
                   </div>
@@ -335,9 +409,13 @@ export default function Home() {
 function Sidebar({
   activeNav,
   onNav,
+  darkMode,
+  setDarkMode,
 }: {
   activeNav: string;
   onNav: (n: "record" | "history" | "settings") => void;
+  darkMode: boolean;
+  setDarkMode: (v: boolean) => void;
 }) {
   const NAV = [
     { id: "record" as const, label: "Spela in", Icon: Disc },
@@ -355,7 +433,13 @@ function Sidebar({
     >
       {/* Logo */}
       <div className="flex items-center gap-2 mb-8">
-        <Image src="/Tarantula.png" alt="Tarantula" width={32} height={32} className="shrink-0" />
+        <Image
+          src="/Tarantula.png"
+          alt="Tarantula"
+          width={32}
+          height={32}
+          className="shrink-0 rounded-full"
+        />
         <span
           className="font-bold text-base"
           style={{ color: "var(--color-primary)", letterSpacing: "-0.01em" }}
@@ -374,8 +458,12 @@ function Sidebar({
               onClick={() => onNav(id)}
               className="flex items-center gap-2.5 px-2.5 py-2 rounded-input text-left transition-colors duration-100 w-full text-sm font-medium"
               style={{
-                background: active ? "var(--color-primary-soft)" : "transparent",
-                color: active ? "var(--color-text)" : "var(--color-text-secondary)",
+                background: active
+                  ? "var(--color-primary-soft)"
+                  : "transparent",
+                color: active
+                  ? "var(--color-text)"
+                  : "var(--color-text-secondary)",
                 border: "none",
                 cursor: "pointer",
               }}
@@ -386,13 +474,18 @@ function Sidebar({
               }}
               onMouseLeave={(e) => {
                 if (!active)
-                  (e.currentTarget as HTMLElement).style.background = "transparent";
+                  (e.currentTarget as HTMLElement).style.background =
+                    "transparent";
               }}
             >
               <Icon
                 size={18}
                 strokeWidth={1.75}
-                style={{ color: active ? "var(--color-primary)" : "var(--color-text-secondary)" }}
+                style={{
+                  color: active
+                    ? "var(--color-primary)"
+                    : "var(--color-text-secondary)",
+                }}
               />
               {label}
             </button>
@@ -402,10 +495,53 @@ function Sidebar({
 
       <div className="flex-1" />
 
+      {/* Dev Mode toggle */}
+      <div className="flex items-center justify-between mb-3 px-1">
+        <span
+          className="text-xs font-medium"
+          style={{ color: "var(--color-text-tertiary)" }}
+        >
+          Dev Mode
+        </span>
+        <button
+          onClick={() => setDarkMode(!darkMode)}
+          style={{
+            width: 36,
+            height: 20,
+            borderRadius: 10,
+            background: darkMode ? "#3B82F6" : "var(--color-border-strong)",
+            border: "none",
+            cursor: "pointer",
+            transition: "background .2s",
+            padding: 0,
+            position: "relative",
+            flexShrink: 0,
+          }}
+          aria-label="Växla dark mode"
+        >
+          <span
+            style={{
+              position: "absolute",
+              top: 2,
+              left: darkMode ? 18 : 2,
+              width: 16,
+              height: 16,
+              borderRadius: "50%",
+              background: "#fff",
+              transition: "left .2s",
+              boxShadow: "0 1px 3px rgba(0,0,0,.3)",
+            }}
+          />
+        </button>
+      </div>
+
       {/* Usage-kort */}
       <div
         className="p-3 rounded-input"
-        style={{ background: "var(--color-surface-inset)", border: "1px solid var(--color-border)" }}
+        style={{
+          background: "var(--color-surface-inset)",
+          border: "1px solid var(--color-border)",
+        }}
       >
         <p
           className="text-xs font-semibold mb-2"
@@ -428,7 +564,10 @@ function Sidebar({
         <p className="text-xs" style={{ color: "var(--color-text-tertiary)" }}>
           300 / 1 000 min denna månad
         </p>
-        <p className="text-xs mt-0.5" style={{ color: "var(--color-text-tertiary)" }}>
+        <p
+          className="text-xs mt-0.5"
+          style={{ color: "var(--color-text-tertiary)" }}
+        >
           Återställs om 5 dagar
         </p>
       </div>
@@ -460,9 +599,19 @@ function Topbar({
       {/* Bell */}
       <button
         className="relative p-2 rounded-input transition-colors"
-        style={{ color: "var(--color-text-secondary)", background: "transparent", border: "none", cursor: "pointer" }}
-        onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = "var(--color-surface-inset)")}
-        onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = "transparent")}
+        style={{
+          color: "var(--color-text-secondary)",
+          background: "transparent",
+          border: "none",
+          cursor: "pointer",
+        }}
+        onMouseEnter={(e) =>
+          ((e.currentTarget as HTMLElement).style.background =
+            "var(--color-surface-inset)")
+        }
+        onMouseLeave={(e) =>
+          ((e.currentTarget as HTMLElement).style.background = "transparent")
+        }
         aria-label="Notiser"
       >
         <Bell size={18} strokeWidth={1.75} />
@@ -481,7 +630,11 @@ function Topbar({
           maxWidth: 400,
         }}
       >
-        <Search size={16} strokeWidth={1.75} style={{ color: "var(--color-text-tertiary)" }} />
+        <Search
+          size={16}
+          strokeWidth={1.75}
+          style={{ color: "var(--color-text-tertiary)" }}
+        />
         <input
           placeholder="Sök inspelningar…"
           className="flex-1 bg-transparent border-none outline-none text-sm"
@@ -493,7 +646,10 @@ function Topbar({
 
       {/* Record + dropdown */}
       {!isProcessing && (
-        <div className="flex rounded-[12px] overflow-hidden" style={{ boxShadow: "var(--shadow-record)" }}>
+        <div
+          className="flex rounded-[12px] overflow-hidden"
+          style={{ boxShadow: "var(--shadow-record)" }}
+        >
           <button
             onClick={onRecord}
             className="flex items-center gap-2 px-4 h-11 text-sm font-semibold text-white transition-all duration-150"
@@ -506,10 +662,12 @@ function Topbar({
               transform: "translateY(0)",
             }}
             onMouseEnter={(e) => {
-              (e.currentTarget as HTMLElement).style.transform = "translateY(-1px)";
+              (e.currentTarget as HTMLElement).style.transform =
+                "translateY(-1px)";
             }}
             onMouseLeave={(e) => {
-              (e.currentTarget as HTMLElement).style.transform = "translateY(0)";
+              (e.currentTarget as HTMLElement).style.transform =
+                "translateY(0)";
             }}
             aria-label={isRecording ? "Stoppa inspelning" : "Starta inspelning"}
           >
@@ -533,8 +691,12 @@ function Topbar({
                 borderColor: "rgba(255,255,255,0.2)",
                 cursor: "pointer",
               }}
-              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.opacity = "0.85")}
-              onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.opacity = "1")}
+              onMouseEnter={(e) =>
+                ((e.currentTarget as HTMLElement).style.opacity = "0.85")
+              }
+              onMouseLeave={(e) =>
+                ((e.currentTarget as HTMLElement).style.opacity = "1")
+              }
               aria-label="Inställningar för inspelning"
             >
               <ChevronDown size={16} strokeWidth={1.75} />
@@ -553,8 +715,14 @@ function Topbar({
             color: "var(--color-primary)",
             cursor: "pointer",
           }}
-          onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = "var(--color-primary-soft)")}
-          onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = "var(--color-surface)")}
+          onMouseEnter={(e) =>
+            ((e.currentTarget as HTMLElement).style.background =
+              "var(--color-primary-soft)")
+          }
+          onMouseLeave={(e) =>
+            ((e.currentTarget as HTMLElement).style.background =
+              "var(--color-surface)")
+          }
         >
           <Upload size={16} strokeWidth={1.75} />
           Importera
@@ -605,15 +773,30 @@ function HeroPanel({
       ) : isProcessing ? (
         <ProcessingStepper step={step} />
       ) : isRecording ? (
-        <RecordingState elapsed={elapsed} capture={capture} onStop={onRecord} sysAudioMissing={sysAudioMissing} />
+        <RecordingState
+          elapsed={elapsed}
+          capture={capture}
+          onStop={onRecord}
+          sysAudioMissing={sysAudioMissing}
+        />
       ) : (
-        <IdleState capture={capture} onCapture={onCapture} onRecord={onRecord} />
+        <IdleState
+          capture={capture}
+          onCapture={onCapture}
+          onRecord={onRecord}
+        />
       )}
     </div>
   );
 }
 
-function ErrorState({ message, onReset }: { message: string | null; onReset: () => void }) {
+function ErrorState({
+  message,
+  onReset,
+}: {
+  message: string | null;
+  onReset: () => void;
+}) {
   return (
     <div className="flex flex-col items-center gap-4 py-4">
       <div
@@ -621,15 +804,26 @@ function ErrorState({ message, onReset }: { message: string | null; onReset: () 
         style={{ background: "#FEE2E2" }}
       >
         <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-          <path d="M10 6v4m0 4h.01M18 10a8 8 0 11-16 0 8 8 0 0116 0z" stroke="#DC2626" strokeWidth="1.75" strokeLinecap="round"/>
+          <path
+            d="M10 6v4m0 4h.01M18 10a8 8 0 11-16 0 8 8 0 0116 0z"
+            stroke="#DC2626"
+            strokeWidth="1.75"
+            strokeLinecap="round"
+          />
         </svg>
       </div>
       <div className="text-center">
-        <p className="font-semibold text-sm" style={{ color: "var(--color-text)" }}>
+        <p
+          className="font-semibold text-sm"
+          style={{ color: "var(--color-text)" }}
+        >
           Något gick fel
         </p>
         {message && (
-          <p className="text-xs mt-1 max-w-xs" style={{ color: "var(--color-text-secondary)" }}>
+          <p
+            className="text-xs mt-1 max-w-xs"
+            style={{ color: "var(--color-text-secondary)" }}
+          >
             {message}
           </p>
         )}
@@ -724,7 +918,10 @@ function RecordingState({
           className="w-2 h-2 rounded-full animate-danger-pulse"
           style={{ background: "var(--color-danger)" }}
         />
-        <span className="text-sm font-semibold" style={{ color: "var(--color-danger)" }}>
+        <span
+          className="text-sm font-semibold"
+          style={{ color: "var(--color-danger)" }}
+        >
           Spelar in
         </span>
       </div>
@@ -744,7 +941,10 @@ function RecordingState({
       </span>
 
       {/* Waveform */}
-      <div className="flex items-center justify-center gap-px" style={{ height: 28 }}>
+      <div
+        className="flex items-center justify-center gap-px"
+        style={{ height: 28 }}
+      >
         {WAVEFORM_DELAYS.map((delay, i) => (
           <div
             key={i}
@@ -762,10 +962,17 @@ function RecordingState({
       </div>
 
       {/* Aktiva källor */}
-      <div className="flex items-center gap-3 text-xs" style={{ color: "var(--color-text-tertiary)" }}>
+      <div
+        className="flex items-center gap-3 text-xs"
+        style={{ color: "var(--color-text-tertiary)" }}
+      >
         {capture.mic && <span>🎙 Mikrofon ●</span>}
         {capture.audio && (
-          <span style={{ color: sysAudioMissing ? "var(--color-warning)" : undefined }}>
+          <span
+            style={{
+              color: sysAudioMissing ? "var(--color-warning)" : undefined,
+            }}
+          >
             🔊 Systemljud {sysAudioMissing ? "⚠" : "●"}
           </span>
         )}
@@ -781,7 +988,8 @@ function RecordingState({
             border: "1px solid rgba(217,119,6,.2)",
           }}
         >
-          Inget systemljud fångades. Dela en <strong>Chrome-flik</strong> (inte hela skärmen) och bocka i &quot;Dela flikens ljud&quot;.
+          Inget systemljud fångades. Dela en <strong>Chrome-flik</strong> (inte
+          hela skärmen) och bocka i &quot;Dela flikens ljud&quot;.
         </p>
       )}
 
@@ -795,8 +1003,12 @@ function RecordingState({
           cursor: "pointer",
           boxShadow: "0 4px 12px rgba(220,38,38,.35)",
         }}
-        onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.opacity = "0.85")}
-        onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.opacity = "1")}
+        onMouseEnter={(e) =>
+          ((e.currentTarget as HTMLElement).style.opacity = "0.85")
+        }
+        onMouseLeave={(e) =>
+          ((e.currentTarget as HTMLElement).style.opacity = "1")
+        }
         aria-label="Stoppa inspelning"
       >
         <Square size={14} fill="white" strokeWidth={0} />
@@ -849,9 +1061,10 @@ function ProcessingStepper({ step }: { step: ProcessingStep }) {
                     background: done
                       ? "var(--color-success)"
                       : active
-                      ? "var(--color-primary)"
-                      : "var(--color-border)",
-                    color: done || active ? "white" : "var(--color-text-tertiary)",
+                        ? "var(--color-primary)"
+                        : "var(--color-border)",
+                    color:
+                      done || active ? "white" : "var(--color-text-tertiary)",
                   }}
                 >
                   {done ? (
@@ -874,13 +1087,20 @@ function ProcessingStepper({ step }: { step: ProcessingStep }) {
                   <span
                     className="text-xs font-medium"
                     style={{
-                      color: active ? "var(--color-text)" : done ? "var(--color-success)" : "var(--color-text-tertiary)",
+                      color: active
+                        ? "var(--color-text)"
+                        : done
+                          ? "var(--color-success)"
+                          : "var(--color-text-tertiary)",
                     }}
                   >
                     {s.label}
                   </span>
                   {s.sub && (
-                    <span className="text-xs" style={{ color: "var(--color-text-tertiary)" }}>
+                    <span
+                      className="text-xs"
+                      style={{ color: "var(--color-text-tertiary)" }}
+                    >
                       {s.sub}
                     </span>
                   )}
@@ -890,7 +1110,8 @@ function ProcessingStepper({ step }: { step: ProcessingStep }) {
                 <div
                   className="w-16 h-px mx-2 mb-6"
                   style={{
-                    background: i < step ? "var(--color-success)" : "var(--color-border)",
+                    background:
+                      i < step ? "var(--color-success)" : "var(--color-border)",
                   }}
                 />
               )}
@@ -925,7 +1146,9 @@ function CaptureToggle({
     <label
       className="flex items-center gap-2 px-3 py-1.5 rounded-full cursor-pointer select-none text-sm font-medium transition-colors"
       style={{
-        background: checked ? "var(--color-primary-soft)" : "var(--color-surface)",
+        background: checked
+          ? "var(--color-primary-soft)"
+          : "var(--color-surface)",
         border: `1px solid ${checked ? "var(--color-primary-ring)" : "var(--color-border)"}`,
         color: checked ? "var(--color-primary)" : "var(--color-text-secondary)",
       }}
@@ -938,13 +1161,14 @@ function CaptureToggle({
         onChange={(e) => onChange(e.target.checked)}
       />
       {/* Pill-toggle */}
-      <div
-        className="relative flex-shrink-0"
-        style={{ width: 32, height: 18 }}
-      >
+      <div className="relative flex-shrink-0" style={{ width: 32, height: 18 }}>
         <div
           className="absolute inset-0 rounded-full transition-colors"
-          style={{ background: checked ? "var(--color-primary)" : "var(--color-border)" }}
+          style={{
+            background: checked
+              ? "var(--color-primary)"
+              : "var(--color-border)",
+          }}
         />
         <div
           className="absolute top-0.75 w-3 h-3 rounded-full bg-white transition-all duration-150"
@@ -967,16 +1191,20 @@ const PRIORITY_COLORS_MAP: Record<number, string> = {
   4: "var(--color-prio-low)",
 };
 
+const CARD_GRADIENT = "linear-gradient(160deg, #0A0A0A 0%, #181818 60%, #262626 100%)";
+
 function SessionCard({
   session,
   onClick,
   onDelete,
   onTitleChange,
+  darkMode,
 }: {
   session: Session;
   onClick: () => void;
   onDelete: () => void;
   onTitleChange: (title: string) => void;
+  darkMode: boolean;
 }) {
   const [hovered, setHovered] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -1000,15 +1228,21 @@ function SessionCard({
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "Enter") { e.preventDefault(); commitEdit(); }
-    if (e.key === "Escape") { setEditing(false); setDraft(session.title); }
+    if (e.key === "Enter") {
+      e.preventDefault();
+      commitEdit();
+    }
+    if (e.key === "Escape") {
+      setEditing(false);
+      setDraft(session.title);
+    }
   }
 
   return (
     <div
-      className="relative w-full p-5 rounded-[16px] transition-all duration-150"
+      className="session-card relative w-full p-5 rounded-[16px] transition-all duration-150"
       style={{
-        background: "var(--color-surface)",
+        background: darkMode ? CARD_GRADIENT : "var(--color-surface)",
         border: `1px solid ${hovered ? "var(--color-border-strong)" : "var(--color-border)"}`,
         boxShadow: hovered ? "var(--shadow-card-hover)" : "var(--shadow-card)",
       }}
@@ -1018,11 +1252,25 @@ function SessionCard({
       {/* Delete-knapp */}
       {hovered && !editing && (
         <button
-          onClick={(e) => { e.stopPropagation(); onDelete(); }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
           className="absolute top-3 right-3 p-1.5 rounded-input"
-          style={{ background: "var(--color-surface-inset)", border: "1px solid var(--color-border)", cursor: "pointer", color: "var(--color-text-tertiary)" }}
-          onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--color-danger)"; }}
-          onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--color-text-tertiary)"; }}
+          style={{
+            background: "var(--color-surface-inset)",
+            border: "1px solid var(--color-border)",
+            cursor: "pointer",
+            color: "var(--color-text-tertiary)",
+          }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLElement).style.color =
+              "var(--color-danger)";
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLElement).style.color =
+              "var(--color-text-tertiary)";
+          }}
           aria-label="Ta bort inspelning"
         >
           <Trash2 size={14} strokeWidth={1.75} />
@@ -1030,7 +1278,10 @@ function SessionCard({
       )}
 
       {/* ID + rubrik */}
-      <div className="flex items-start gap-3 mb-1" style={{ paddingRight: hovered && !editing ? 32 : 0 }}>
+      <div
+        className="flex items-start gap-3 mb-1"
+        style={{ paddingRight: hovered && !editing ? 32 : 0 }}
+      >
         <span
           className="text-xs font-mono font-semibold mt-0.5 shrink-0"
           style={{ color: "var(--color-text-tertiary)" }}
@@ -1058,7 +1309,12 @@ function SessionCard({
           <button
             onClick={onClick}
             className="flex-1 text-left group"
-            style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}
+            style={{
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              padding: 0,
+            }}
           >
             <h3
               className="text-base font-semibold leading-snug"
@@ -1069,11 +1325,20 @@ function SessionCard({
                 <span
                   onClick={startEdit}
                   className="inline-flex items-center ml-1.5 align-middle opacity-0 group-hover:opacity-100"
-                  style={{ color: "var(--color-text-tertiary)", transition: "opacity 0.1s" }}
+                  style={{
+                    color: "var(--color-text-tertiary)",
+                    transition: "opacity 0.1s",
+                  }}
                   title="Redigera titel"
                 >
                   <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                    <path d="M8.5 1.5a1.414 1.414 0 012 2L3.5 10.5l-3 .5.5-3L8.5 1.5z" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+                    <path
+                      d="M8.5 1.5a1.414 1.414 0 012 2L3.5 10.5l-3 .5.5-3L8.5 1.5z"
+                      stroke="currentColor"
+                      strokeWidth="1.2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
                   </svg>
                 </span>
               )}
@@ -1083,14 +1348,29 @@ function SessionCard({
 
         <span
           className="text-xs font-medium shrink-0 px-2 py-0.5 rounded-full"
-          style={{ background: "var(--color-primary-soft)", color: "var(--color-primary)" }}
+          style={{
+            background: "var(--color-primary-soft)",
+            color: "var(--color-primary)",
+          }}
         >
           {issueCount} issues
         </span>
       </div>
 
-      <button onClick={onClick} className="w-full text-left" style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}>
-        <p className="text-xs mb-3 ml-9" style={{ color: "var(--color-text-tertiary)" }}>
+      <button
+        onClick={onClick}
+        className="w-full text-left"
+        style={{
+          background: "none",
+          border: "none",
+          cursor: "pointer",
+          padding: 0,
+        }}
+      >
+        <p
+          className="text-xs mb-3 ml-9"
+          style={{ color: "var(--color-text-tertiary)" }}
+        >
           {formatDate(session.date)} · {formatDuration(session.durationSec)}
         </p>
 
@@ -1102,20 +1382,29 @@ function SessionCard({
                 className="mt-1.25 w-1.5 h-1.5 rounded-full shrink-0"
                 style={{ background: PRIORITY_COLORS_MAP[issue.priority] }}
               />
-              <span className="text-sm leading-snug" style={{ color: "var(--color-text-secondary)" }}>
+              <span
+                className="text-sm leading-snug"
+                style={{ color: "var(--color-text-secondary)" }}
+              >
                 {issue.title}
               </span>
             </div>
           ))}
           {issueCount > 3 && (
-            <span className="text-xs ml-3.5" style={{ color: "var(--color-text-tertiary)" }}>
+            <span
+              className="text-xs ml-3.5"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
               + {issueCount - 3} till…
             </span>
           )}
         </div>
 
         {/* Footer */}
-        <div className="flex items-center gap-1 ml-9" style={{ color: "var(--color-primary)" }}>
+        <div
+          className="flex items-center gap-1 ml-9"
+          style={{ color: "var(--color-primary)" }}
+        >
           <span className="text-sm font-medium">Granska issues</span>
           <ArrowUpRight size={15} strokeWidth={2} />
         </div>
@@ -1131,12 +1420,16 @@ function EmptyState() {
         className="w-12 h-12 rounded-full flex items-center justify-center"
         style={{ background: "var(--color-primary-soft)" }}
       >
-        <Disc size={22} style={{ color: "var(--color-primary)" }} strokeWidth={1.75} />
+        <Disc
+          size={22}
+          style={{ color: "var(--color-primary)" }}
+          strokeWidth={1.75}
+        />
       </div>
       <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>
         Inga inspelningar ännu.{" "}
-        <span style={{ color: "var(--color-text)" }}>Tryck Spela in</span> för att
-        fånga ditt första möte.
+        <span style={{ color: "var(--color-text)" }}>Tryck Spela in</span> för
+        att fånga ditt första möte.
       </p>
     </div>
   );

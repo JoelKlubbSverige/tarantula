@@ -101,6 +101,15 @@ function ReviewPageInner() {
   const [highlightedTime, setHighlightedTime] = useState<number | null>(null);
   const [meta, setMeta] = useState<LinearMeta | null>(null);
   const [metaError, setMetaError] = useState(false);
+  const [darkMode, setDarkMode] = useState(() => {
+    if (typeof window !== "undefined") return localStorage.getItem("tarantula:dark") === "1";
+    return false;
+  });
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", darkMode ? "dark" : "light");
+    localStorage.setItem("tarantula:dark", darkMode ? "1" : "0");
+  }, [darkMode]);
 
   useEffect(() => {
     async function load() {
@@ -235,7 +244,7 @@ function ReviewPageInner() {
           boxShadow: "var(--shadow-card)",
         }}
       >
-        <ReviewSidebar />
+        <ReviewSidebar darkMode={darkMode} setDarkMode={setDarkMode} />
 
         <div className="flex flex-1 flex-col min-w-0">
           {/* Review top-bar */}
@@ -314,6 +323,7 @@ function ReviewPageInner() {
                     key={issue.id}
                     issue={issue}
                     meta={meta}
+                    darkMode={darkMode}
                     onUpdate={(patch) => updateIssue(issue.id, patch)}
                     onDelete={() => deleteIssue(issue.id)}
                     onSend={() => sendIssue(issue.id)}
@@ -729,7 +739,7 @@ function ChatWidget({
 }
 
 /* ── Sidofält ───────────────────────────────────────────────── */
-function ReviewSidebar() {
+function ReviewSidebar({ darkMode, setDarkMode }: { darkMode: boolean; setDarkMode: (v: boolean) => void }) {
   return (
     <aside
       className="flex flex-col w-66 shrink-0 p-5"
@@ -737,7 +747,7 @@ function ReviewSidebar() {
     >
       <div className="flex items-center gap-2 mb-8">
         <Image src="/Tarantula.png" alt="Tarantula" width={32} height={32} style={{ borderRadius: "50%" }} />
-        <span className="font-bold text-base" style={{ color: "var(--color-primary)" }}>
+        <span className="font-bold text-base" style={{ color: "var(--color-text)" }}>
           Tarantula
         </span>
       </div>
@@ -760,6 +770,37 @@ function ReviewSidebar() {
       </nav>
 
       <div className="flex-1" />
+
+      {/* Dev Mode toggle */}
+      <div className="flex items-center justify-between mb-3 px-1">
+        <span className="text-xs font-medium" style={{ color: "var(--color-text-tertiary)" }}>Dev Mode ✨</span>
+        <button
+          onClick={() => setDarkMode(!darkMode)}
+          className="relative shrink-0"
+          style={{
+            width: 36, height: 20,
+            borderRadius: 10,
+            background: darkMode ? "#3B82F6" : "var(--color-border-strong)",
+            border: "none",
+            cursor: "pointer",
+            transition: "background .2s",
+            padding: 0,
+          }}
+          aria-label="Växla dark mode"
+        >
+          <span
+            style={{
+              position: "absolute",
+              top: 2, left: darkMode ? 18 : 2,
+              width: 16, height: 16,
+              borderRadius: "50%",
+              background: "#fff",
+              transition: "left .2s",
+              boxShadow: "0 1px 3px rgba(0,0,0,.3)",
+            }}
+          />
+        </button>
+      </div>
 
       <div
         className="p-3 rounded-input"
@@ -1005,9 +1046,12 @@ function NewIssueModal({
   );
 }
 
+const CARD_GRADIENT = "linear-gradient(160deg, #0A0A0A 0%, #181818 60%, #262626 100%)";
+
 function IssueCard({
   issue,
   meta,
+  darkMode,
   onUpdate,
   onDelete,
   onSend,
@@ -1016,6 +1060,7 @@ function IssueCard({
 }: {
   issue: LinearIssue;
   meta: LinearMeta | null;
+  darkMode: boolean;
   onUpdate: (patch: Partial<LinearIssue>) => void;
   onDelete: () => void;
   onSend: () => void;
@@ -1045,9 +1090,9 @@ function IssueCard({
 
   return (
     <div
-      className="rounded-card p-5 transition-all"
+      className="issue-card rounded-card p-5 transition-all"
       style={{
-        background: "var(--color-surface)",
+        background: darkMode ? CARD_GRADIENT : "var(--color-surface)",
         border: `1px solid ${borderColor}`,
         boxShadow: "var(--shadow-card)",
         opacity: issue.status === "sending" ? 0.65 : 1,
