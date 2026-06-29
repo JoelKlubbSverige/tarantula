@@ -19,7 +19,7 @@ async function gql<T>(query: string, variables?: Record<string, unknown>): Promi
 }
 
 export interface LUser { id: string; name: string; displayName: string; avatarUrl?: string; }
-export interface LProject { id: string; name: string; }
+export interface LProject { id: string; name: string; icon?: string; color?: string; }
 export interface LCycle { id: string; name: string; number: number; startsAt: string; endsAt: string; }
 export interface LLabel { id: string; name: string; color: string; }
 
@@ -39,7 +39,7 @@ const META_QUERY = `
       filter: { status: { type: { nin: ["completed", "canceled"] } } }
       first: 50
     ) {
-      nodes { id name }
+      nodes { id name icon color }
     }
     cycles(
       filter: { team: { id: { eq: $teamId } } }
@@ -47,7 +47,10 @@ const META_QUERY = `
     ) {
       nodes { id name number startsAt endsAt }
     }
-    issueLabels(first: 100) {
+    issueLabels(
+      filter: { team: { id: { eq: $teamId } } }
+      first: 250
+    ) {
       nodes { id name color }
     }
   }

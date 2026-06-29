@@ -55,11 +55,17 @@ export const PRIORITY_BG: Record<Priority, string> = {
   4: "rgba(94,106,210,.12)",
 };
 
-export const ESTIMATES = [0, 1, 2, 3, 5, 8, 13];
+export const ESTIMATES: { value: number; label: string }[] = [
+  { value: 1, label: "XS" },
+  { value: 2, label: "S" },
+  { value: 3, label: "M" },
+  { value: 5, label: "L" },
+  { value: 8, label: "XL" },
+];
 
 // Linear meta types (from API)
 export interface LUser { id: string; name: string; displayName: string; avatarUrl?: string; }
-export interface LProject { id: string; name: string; }
+export interface LProject { id: string; name: string; icon?: string; color?: string; }
 export interface LCycle { id: string; name: string; number: number; startsAt: string; endsAt: string; }
 export interface LLabel { id: string; name: string; color: string; }
 

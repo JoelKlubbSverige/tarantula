@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import type { LinearIssue, Priority, Session, LinearMeta } from "@/lib/types";
 import { PRIORITY_LABELS, PRIORITY_COLORS, PRIORITY_BG, ESTIMATES } from "@/lib/types";
+import * as LucideIcons from "lucide-react";
 
 function LinearLogo({ size = 18 }: { size?: number }) {
   return <Image src="/linearlogo.png" alt="Linear" width={size} height={size} style={{ objectFit: "contain", filter: "brightness(0) invert(1)" }} />;
@@ -885,7 +886,7 @@ function IssueCard({
             icon={<User size={12} />}
             placeholder="Assignee"
             value={issue.assigneeId}
-            options={meta?.users.map((u) => ({ id: u.id, label: u.displayName || u.name })) ?? []}
+            options={meta?.users.map((u) => ({ id: u.id, label: u.displayName || u.name, avatar: { url: u.avatarUrl, name: u.displayName || u.name } })) ?? []}
             onChange={(v) => onUpdate({ assigneeId: v })}
             disabled={!meta}
           />
@@ -895,7 +896,7 @@ function IssueCard({
             icon={<Layers size={12} />}
             placeholder="Projekt"
             value={issue.projectId}
-            options={meta?.projects.map((p) => ({ id: p.id, label: p.name })) ?? []}
+            options={meta?.projects.map((p) => ({ id: p.id, label: p.name, prefix: <ProjectIcon icon={p.icon} color={p.color} size={14} /> })) ?? []}
             onChange={(v) => onUpdate({ projectId: v })}
             disabled={!meta}
           />
@@ -907,7 +908,7 @@ function IssueCard({
             value={issue.cycleId}
             options={meta?.cycles.map((c) => {
                 const active = new Date(c.startsAt).getTime() <= NOW_MS && new Date(c.endsAt).getTime() >= NOW_MS;
-                return { id: c.id, label: `#${c.number} ${c.name}${active ? " ●" : ""}` };
+                return { id: c.id, label: `${c.name}${active ? " ●" : ""}` };
               }) ?? []}
             onChange={(v) => onUpdate({ cycleId: v })}
             disabled={!meta}
@@ -918,7 +919,7 @@ function IssueCard({
             icon={<Hash size={12} />}
             placeholder="Estimate"
             value={issue.estimate !== undefined ? String(issue.estimate) : undefined}
-            options={ESTIMATES.map((e) => ({ id: String(e), label: `${e} pt` }))}
+            options={ESTIMATES.map((e) => ({ id: String(e.value), label: e.label }))}
             onChange={(v) => onUpdate({ estimate: Number(v) })}
           />
 
@@ -1009,6 +1010,101 @@ function IssueCard({
 }
 
 /* ── MetaSelect ─────────────────────────────────────────────── */
+// Linear icon name → Lucide export name (when they differ)
+const LINEAR_TO_LUCIDE: Record<string, string> = {
+  NotePad: "Notebook", Notepad: "Notebook",
+  MobilePhone: "Smartphone",
+  ViewFinder: "ScanSearch", ViewFinder2: "ScanSearch",
+  Robot: "Bot",
+  Chat: "MessageCircle",
+  Alert: "AlertTriangle",
+  FaceId: "ScanFace",
+  Cube: "Box",
+  Rank: "Trophy",
+  Chart: "BarChart2",
+  Cone: "Cone",
+  Cross: "Plus",
+  Notion: "FileText",
+  Zendesk: "Headphones",
+  Claude: "Bot",
+  Linear: "Layers",
+};
+
+// Emoji shortcodes — normalize both - and _ as separator
+const EMOJI_SHORTCODES: Record<string, string> = {
+  "speaking-head-in-silhouette": "🗣️", "speaking_head_in_silhouette": "🗣️",
+  "flag-fi": "🇫🇮", "flag_fi": "🇫🇮",
+  "flag-se": "🇸🇪", "flag_se": "🇸🇪",
+  "flag-us": "🇺🇸", "flag_us": "🇺🇸",
+  "flag-gb": "🇬🇧", "flag_gb": "🇬🇧",
+  "flag-no": "🇳🇴", "flag_no": "🇳🇴",
+  "flag-de": "🇩🇪", "flag_de": "🇩🇪",
+  robot: "🤖", bug: "🐛", construction: "🚧", warning: "⚠️",
+  fire: "🔥", bulb: "💡", memo: "📝", zap: "⚡",
+  tada: "🎉", rocket: "🚀", star: "⭐", sparkles: "✨",
+  gear: "⚙️", wrench: "🔧", hammer: "🔨", key: "🔑",
+  lock: "🔒", eyes: "👀", wave: "👋", heart: "❤️",
+  "chart-with-upwards-trend": "📈", "chart_with_upwards_trend": "📈",
+  "bar-chart": "📊", "bar_chart": "📊",
+  iphone: "📱", computer: "💻",
+};
+
+function ProjectIcon({ icon, color, size = 14 }: { icon?: string; color?: string; size?: number }) {
+  const fg = color ?? "#6b7280";
+
+  // 1. Emoji shortcode e.g. ":speaking_head_in_silhouette:"
+  if (icon?.startsWith(":") && icon.endsWith(":")) {
+    const key = icon.slice(1, -1);
+    const emoji = EMOJI_SHORTCODES[key];
+    if (emoji) {
+      return <span style={{ fontSize: size, lineHeight: 1, flexShrink: 0 }}>{emoji}</span>;
+    }
+    // Unknown shortcode → colored square fallback
+    return <span style={{ width: size, height: size, borderRadius: 3, background: fg, display: "inline-block", flexShrink: 0 }} />;
+  }
+
+  // 2. Lucide icon name e.g. "Book", "Users" — with Linear→Lucide name mapping
+  if (icon) {
+    const lucideName = LINEAR_TO_LUCIDE[icon] ?? icon;
+    const Icon = (LucideIcons as unknown as Record<string, React.ComponentType<{ size: number; color: string; strokeWidth: number }>>)[lucideName];
+    if (Icon) {
+      return <Icon size={size} color={fg} strokeWidth={1.75} />;
+    }
+  }
+
+  // 3. Fallback: first letter of icon name as monogram in project color
+  const letter = icon ? icon[0].toUpperCase() : "·";
+  return (
+    <span style={{
+      width: size, height: size, borderRadius: 3, background: `${fg}22`,
+      border: `1px solid ${fg}55`, color: fg,
+      display: "inline-flex", alignItems: "center", justifyContent: "center",
+      fontSize: size * 0.6, fontWeight: 700, flexShrink: 0, lineHeight: 1,
+    }}>
+      {letter}
+    </span>
+  );
+}
+
+function Avatar({ url, name, size = 16 }: { url?: string; name: string; size?: number }) {
+  const initials = name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase();
+  if (url) {
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img src={url} alt={name} width={size} height={size} style={{ borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} />;
+  }
+  return (
+    <span
+      style={{
+        width: size, height: size, borderRadius: "50%", background: "var(--color-border-strong)",
+        color: "var(--color-text)", fontSize: size * 0.45, fontWeight: 600,
+        display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+      }}
+    >
+      {initials}
+    </span>
+  );
+}
+
 function MetaSelect({
   icon,
   placeholder,
@@ -1020,7 +1116,7 @@ function MetaSelect({
   icon: React.ReactNode;
   placeholder: string;
   value?: string;
-  options: { id: string; label: string }[];
+  options: { id: string; label: string; avatar?: { url?: string; name: string }; prefix?: React.ReactNode }[];
   onChange: (id: string | undefined) => void;
   disabled?: boolean;
 }) {
@@ -1050,7 +1146,9 @@ function MetaSelect({
           opacity: disabled ? 0.4 : 1,
         }}
       >
-        {icon}
+        {selected?.avatar
+          ? <Avatar url={selected.avatar.url} name={selected.avatar.name} size={14} />
+          : selected?.prefix ?? icon}
         {selected ? selected.label : placeholder}
         <ChevronDown size={10} />
       </button>
@@ -1088,7 +1186,9 @@ function MetaSelect({
                   o.id === value ? "var(--color-surface-inset)" : "transparent";
               }}
             >
-              {o.id === value && <Check size={10} strokeWidth={2.5} />}
+              {o.avatar
+                ? <Avatar url={o.avatar.url} name={o.avatar.name} size={16} />
+                : o.prefix ?? <span style={{ width: 10 }}>{o.id === value && <Check size={10} strokeWidth={2.5} />}</span>}
               {o.label}
             </button>
           ))}
@@ -1183,7 +1283,7 @@ function MetaMultiSelect({
 function StatusBadge({ status }: { status: LinearIssue["status"] }) {
   if (status === "resolved") return (
     <span className="flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full"
-      style={{ background: "var(--color-surface-inset)", color: "var(--color-text-tertiary)", border: "1px solid var(--color-border)" }}>
+      style={{ background: "rgba(21,163,74,.1)", color: "var(--color-success)", border: "1px solid rgba(21,163,74,.2)" }}>
       <Check size={11} strokeWidth={2.5} />
       Redan åtgärdat
     </span>
