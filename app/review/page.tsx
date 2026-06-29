@@ -148,6 +148,17 @@ function ReviewPageInner() {
       .catch(() => setMetaError(true));
   }, []);
 
+  const isDbId = (id: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id);
+
+  const persistIssue = useCallback((id: string, patch: Record<string, unknown>) => {
+    if (!isDbId(id)) return;
+    fetch(`/api/issues/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    }).catch(() => {});
+  }, []);
+
   const updateIssue = useCallback((id: string, patch: Partial<LinearIssue>) => {
     setIssues((prev) => prev.map((i) => (i.id === id ? { ...i, ...patch } : i)));
   }, []);
@@ -181,11 +192,17 @@ function ReviewPageInner() {
         updateIssue(id, { status: "error", error: data.error ?? "Okänt fel" });
       } else {
         updateIssue(id, { status: "sent", linearUrl: data.issue.url });
+        persistIssue(id, { status: "sent", linear_url: data.issue.url });
       }
     } catch {
       updateIssue(id, { status: "error", error: "Kunde inte nå Linear. Försök igen." });
     }
-  }, [issues, updateIssue]);
+  }, [issues, updateIssue, persistIssue]);
+
+  const resolveIssue = useCallback((id: string) => {
+    updateIssue(id, { status: "resolved" });
+    persistIssue(id, { status: "resolved" });
+  }, [updateIssue, persistIssue]);
 
   const sendAll = useCallback(() => {
     issues
@@ -295,6 +312,7 @@ function ReviewPageInner() {
                     onUpdate={(patch) => updateIssue(issue.id, patch)}
                     onDelete={() => deleteIssue(issue.id)}
                     onSend={() => sendIssue(issue.id)}
+                    onResolve={() => resolveIssue(issue.id)}
                     onTimecodeHover={setHighlightedTime}
                   />
                 ))}
@@ -736,6 +754,7 @@ function IssueCard({
   onUpdate,
   onDelete,
   onSend,
+  onResolve,
   onTimecodeHover,
 }: {
   issue: LinearIssue;
@@ -743,6 +762,7 @@ function IssueCard({
   onUpdate: (patch: Partial<LinearIssue>) => void;
   onDelete: () => void;
   onSend: () => void;
+  onResolve: () => void;
   onTimecodeHover: (t: number | null) => void;
 }) {
   const [showPrioMenu, setShowPrioMenu] = useState(false);
@@ -967,7 +987,7 @@ function IssueCard({
         <div className="flex items-center gap-2">
           {(issue.status === "draft" || issue.status === "error") && (
             <button
-              onClick={() => onUpdate({ status: "resolved" })}
+              onClick={onResolve}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-button text-sm font-medium transition-all"
               style={{ background: "none", border: "1px solid var(--color-border)", cursor: "pointer", color: "var(--color-text-secondary)" }}
               onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "var(--color-surface-inset)"; }}
